@@ -14,7 +14,7 @@ if (args.length === 0) {
 
 const isWindows = process.platform === "win32";
 const shortTargetDir = isWindows
-  ? process.env.SOLQUEUE_TARGET_DIR || path.join(os.tmpdir(), "solqueue-target")
+  ? process.env.DECQUEUE_TARGET_DIR || path.join(os.tmpdir(), "decqueue-target")
   : null;
 
 if (shortTargetDir) {

@@ -3,7 +3,7 @@ const { spawnSync } = require("child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
 const isWindows = process.platform === "win32";
-const cluster = process.argv[2] || process.env.SOLQUEUE_CLUSTER || "localnet";
+const cluster = process.argv[2] || process.env.DECQUEUE_CLUSTER || "localnet";
 const explicitWallet = process.argv[3] || process.env.WALLET_PATH;
 const walletPath = explicitWallet;
 const tsNodeBin = path.join(
@@ -15,7 +15,7 @@ const tsNodeBin = path.join(
 
 const env = {
   ...process.env,
-  SOLQUEUE_CLUSTER: cluster,
+  DECQUEUE_CLUSTER: cluster,
 };
 
 if (walletPath) {

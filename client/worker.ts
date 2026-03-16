@@ -1,23 +1,23 @@
 /**
- * worker.ts — SolQueue worker process with HybridFeeStrategy
+ * worker.ts — DecQueue worker process with HybridFeeStrategy
  *
  * Environment variables:
  *
- *   SOLQUEUE_CLUSTER        localnet | devnet | mainnet-beta (default: localnet)
- *   SOLQUEUE_QUEUE          Queue PDA (alternative to positional arg)
- *   SOLQUEUE_POLL_MS        Polling interval in ms (default: 5000)
- *   SOLQUEUE_WORKER_ONCE    Set to "1" for a single processing pass then exit
- *   SOLQUEUE_RETRY_AFTER_SECS  Base retry delay for failed jobs (default: 30)
- *   SOLQUEUE_COMPRESSED     Set to "1" to use ZK-compressed job path
+ *   DECQUEUE_CLUSTER        localnet | devnet | mainnet-beta (default: localnet)
+ *   DECQUEUE_QUEUE          Queue PDA (alternative to positional arg)
+ *   DECQUEUE_POLL_MS        Polling interval in ms (default: 5000)
+ *   DECQUEUE_WORKER_ONCE    Set to "1" for a single processing pass then exit
+ *   DECQUEUE_RETRY_AFTER_SECS  Base retry delay for failed jobs (default: 30)
+ *   DECQUEUE_COMPRESSED     Set to "1" to use ZK-compressed job path
  *   WALLET_PATH             Path to the worker keypair JSON (default: ~/.config/solana/id.json)
  *
  *   ── Fee strategy ──────────────────────────────────────────────────────────
- *   SOLQUEUE_FEE_MODE       standard | jito | auto  (default: auto)
+ *   DECQUEUE_FEE_MODE       standard | jito | auto  (default: auto)
  *   JITO_BLOCK_ENGINE_URL   Jito block engine REST URL
  *                           (default: https://ny.mainnet.block-engine.jito.wtf)
  *   JITO_TIP_LAMPORTS       Lamports to tip Jito per bundle (default: 25000)
- *   SOLQUEUE_PRIORITY_FEE_PERCENTILE  0–100, fee percentile to bid (default: 75)
- *   SOLQUEUE_MAX_SEND_ATTEMPTS        Max tx attempts before giving up (default: 4)
+ *   DECQUEUE_PRIORITY_FEE_PERCENTILE  0–100, fee percentile to bid (default: 75)
+ *   DECQUEUE_MAX_SEND_ATTEMPTS        Max tx attempts before giving up (default: 4)
  */
 
 import {
@@ -29,7 +29,7 @@ import {
 import {
   Cluster,
   JobRecord,
-  SolQueueClient,
+  DecQueueClient,
   defaultWalletPath,
   formatAddressLocation,
   formatTxLocation,
@@ -59,7 +59,7 @@ function parseCluster(value: string | undefined): Cluster | null {
 function parseArgs() {
   const args = process.argv.slice(2);
   const positional: string[] = [];
-  let cluster = parseCluster(process.env.SOLQUEUE_CLUSTER) ?? "localnet";
+  let cluster = parseCluster(process.env.DECQUEUE_CLUSTER) ?? "localnet";
 
   for (const arg of args) {
     const parsedCluster = parseCluster(arg);
@@ -67,20 +67,20 @@ function parseArgs() {
     positional.push(arg);
   }
 
-  return { cluster, queueArg: positional[0] ?? process.env.SOLQUEUE_QUEUE };
+  return { cluster, queueArg: positional[0] ?? process.env.DECQUEUE_QUEUE };
 }
 
 /** Build HybridFeeStrategyConfig from environment variables */
 function buildFeeConfig(): HybridFeeStrategyConfig {
-  const modeEnv = process.env.SOLQUEUE_FEE_MODE as FeeMode | undefined;
+  const modeEnv = process.env.DECQUEUE_FEE_MODE as FeeMode | undefined;
   const validModes: FeeMode[] = ["standard", "jito", "auto"];
   const mode: FeeMode = validModes.includes(modeEnv!) ? modeEnv! : "auto";
 
   return defaultHybridFeeConfig({
     mode,
-    priorityFeePercentile: Number(process.env.SOLQUEUE_PRIORITY_FEE_PERCENTILE ?? 75),
+    priorityFeePercentile: Number(process.env.DECQUEUE_PRIORITY_FEE_PERCENTILE ?? 75),
     retry: {
-      maxAttempts:       Number(process.env.SOLQUEUE_MAX_SEND_ATTEMPTS ?? 4),
+      maxAttempts:       Number(process.env.DECQUEUE_MAX_SEND_ATTEMPTS ?? 4),
       baseDelayMs:       800,
       jitterFactor:      0.2,
       backoffMultiplier: 2.0,
@@ -115,7 +115,7 @@ function renderResult(job: JobRecord): string {
     case "audit-log":
       return compactJson({ ok: true, entry: `audit_${job.jobId}` });
     default:
-      return compactJson({ ok: true, handledBy: "solqueue-worker", type: job.jobType });
+      return compactJson({ ok: true, handledBy: "decqueue-worker", type: job.jobType });
   }
 }
 
@@ -145,7 +145,7 @@ function sortReadyJobs(jobs: JobRecord[]): JobRecord[] {
 }
 
 async function fetchJobsByIds(
-  client: SolQueueClient,
+  client: DecQueueClient,
   queuePda: PublicKey,
   jobIds: number[]
 ): Promise<JobRecord[]> {
@@ -164,12 +164,12 @@ function sleep(ms: number): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 // HybridFeeStrategy-aware transaction senders
 //
-// These replicate the SolQueueClient.claimJob / completeJob / failJob flow but
+// These replicate the DecQueueClient.claimJob / completeJob / failJob flow but
 // intercept the transaction before it is sent so we can prepend ComputeBudget
 // instructions and optionally route through Jito.
 //
-// Why not modify SolQueueClient directly?
-//   SolQueueClient uses Anchor's .rpc() method which builds + signs + sends
+// Why not modify DecQueueClient directly?
+//   DecQueueClient uses Anchor's .rpc() method which builds + signs + sends
 //   internally. To inject compute budget instructions we use .transaction()
 //   instead of .rpc() and pass the resulting Transaction to HybridFeeStrategy.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ function sleep(ms: number): Promise<void> {
  * fee estimation.
  */
 async function claimWithStrategy(
-  client: SolQueueClient,
+  client: DecQueueClient,
   strategy: HybridFeeStrategy,
   job: JobRecord,
   queuePda: PublicKey,
@@ -230,7 +230,7 @@ async function claimWithStrategy(
 }
 
 async function completeWithStrategy(
-  client: SolQueueClient,
+  client: DecQueueClient,
   strategy: HybridFeeStrategy,
   job: JobRecord,
   queuePda: PublicKey,
@@ -256,7 +256,7 @@ async function completeWithStrategy(
 }
 
 async function failWithStrategy(
-  client: SolQueueClient,
+  client: DecQueueClient,
   strategy: HybridFeeStrategy,
   job: JobRecord,
   queuePda: PublicKey,
@@ -291,13 +291,13 @@ async function failWithStrategy(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function processReadyJobs(
-  client: SolQueueClient,
+  client: DecQueueClient,
   queuePda: PublicKey,
   worker: Keypair,
   cluster: Cluster,
   strategy: HybridFeeStrategy
 ): Promise<number> {
-  const useCompressed = process.env.SOLQUEUE_COMPRESSED === "1";
+  const useCompressed = process.env.DECQUEUE_COMPRESSED === "1";
 
   // O(1) read — indexes tell us exactly which job_ids are ready
   const readyIds = await client.getReadyJobIds(queuePda);
@@ -350,7 +350,7 @@ async function processReadyJobs(
       }
     } else {
       try {
-        const retryAfterSecs = Number(process.env.SOLQUEUE_RETRY_AFTER_SECS ?? 30);
+        const retryAfterSecs = Number(process.env.DECQUEUE_RETRY_AFTER_SECS ?? 30);
         const failSig = await failWithStrategy(
           client, strategy, job, queuePda, worker,
           failMessage, retryAfterSecs, cluster, indexPageSeq, useCompressed
@@ -374,17 +374,17 @@ async function main() {
   const { cluster, queueArg } = parseArgs();
   if (!queueArg) {
     throw new Error(
-      "Provide a queue PDA via `npm run worker -- <cluster> <queue-pda>` or SOLQUEUE_QUEUE."
+      "Provide a queue PDA via `npm run worker -- <cluster> <queue-pda>` or DECQUEUE_QUEUE."
     );
   }
 
   const walletPath    = process.env.WALLET_PATH ?? defaultWalletPath();
-  const pollMs        = Number(process.env.SOLQUEUE_POLL_MS ?? 5_000);
-  const once          = process.env.SOLQUEUE_WORKER_ONCE === "1";
+  const pollMs        = Number(process.env.DECQUEUE_POLL_MS ?? 5_000);
+  const once          = process.env.DECQUEUE_WORKER_ONCE === "1";
   const queuePda      = new PublicKey(queueArg);
   const wallet        = loadWalletFromFile(walletPath);
   const workerKeypair = loadKeypairFromFile(walletPath);
-  const client        = await SolQueueClient.connect(wallet, cluster);
+  const client        = await DecQueueClient.connect(wallet, cluster);
   const feeConfig     = buildFeeConfig();
 
   // ── Build HybridFeeStrategy ───────────────────────────────────────────────
@@ -397,7 +397,7 @@ async function main() {
   // ── Print startup banner ──────────────────────────────────────────────────
   const stats = await client.getQueueStats(queuePda);
   console.log(`\n╔══════════════════════════════════════════════════════╗`);
-  console.log(`║          SolQueue Worker (HybridFeeStrategy)         ║`);
+  console.log(`║          DecQueue Worker (HybridFeeStrategy)         ║`);
   console.log(`╠══════════════════════════════════════════════════════╣`);
   console.log(`║  Cluster:    ${cluster.padEnd(38)}║`);
   console.log(`║  Queue:      ${stats.name.slice(0, 38).padEnd(38)}║`);

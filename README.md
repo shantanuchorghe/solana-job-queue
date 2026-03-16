@@ -1,6 +1,6 @@
-# SolQueue
+# DecQueue
 
-SolQueue is a Solana Anchor program that models a Bull/BullMQ-style job queue on-chain.
+DecQueue is a Solana Anchor program that models a Bull/BullMQ-style job queue on-chain.
 Queues and jobs live in PDAs, and workers move jobs through `pending -> processing -> completed/failed/cancelled`
 using signed transactions instead of a Redis-backed worker loop.
 
@@ -40,7 +40,7 @@ This project translates a traditional Web2 backend job queue (like BullMQ, Celer
 - **Workflow**: Producers push items (`LPUSH`); a Worker process continuously polls or blocks (`BRPOPLPUSH`) to claim items; if successful, it deletes the item.
 - **State/Locks**: The worker runtime acts as a single point of truth using distributed Redis locks to ensure jobs aren't claimed twice.
 
-**Solana Approach (SolQueue):**
+**Solana Approach (DecQueue):**
 - **Storage**: Jobs and Queues are durable, Program Derived Address (PDA) accounts on-chain. Job Index accounts group job IDs by state.
 - **Workflow**: Producers broadcast `enqueue_job` signed transactions to the network. Workers broadcast `claim_job` transactions.
 - **State/Locks**: The blockchain validates state transitions via the Anchor program logic. The "mutex" is the atomic execution of the transaction itself. There is no central orchestrator API.
@@ -59,14 +59,14 @@ Instead of ephemeral records constantly created and destroyed (like Redis entrie
 
 ### 3. ZK Compression (Light Protocol)
 
-SolQueue includes a **fully implemented ZK Compression path** using `@lightprotocol/stateless.js` and `light-sdk`.
+DecQueue includes a **fully implemented ZK Compression path** using `@lightprotocol/stateless.js` and `light-sdk`.
 
 - **The Problem:** A standard `Job` PDA costs ~0.007 SOL in rent. Rent makes high-throughput durable queues cost-prohibitive.
 - **The ZK Solution:** The `JobAccount` data struct is stored wholly in the Solana ledger (zero rent). Only its 32-byte Sha256 hash is kept in an on-chain State Merkle Tree.
-- **Atomicity:** When a worker claims a compressed job, it fetches a ZK-SNARK `ValidityProof` from the Light RPC. The SolQueue `claim_compressed_job` handler calls `LightSystemProgramCpi` to verify the proof, nullify the old PENDING leaf, and insert the new PROCESSING leaf. If another worker races and claims it first, the Merkle root changes, the proof becomes stale, and the transaction reverts atomically.
+- **Atomicity:** When a worker claims a compressed job, it fetches a ZK-SNARK `ValidityProof` from the Light RPC. The DecQueue `claim_compressed_job` handler calls `LightSystemProgramCpi` to verify the proof, nullify the old PENDING leaf, and insert the new PROCESSING leaf. If another worker races and claims it first, the Merkle root changes, the proof becomes stale, and the transaction reverts atomically.
 
 > **Feature Gate Note:** The Rust portion of the ZK Compression logic is thoroughly documented and implemented but currently gated behind `#[cfg(feature = "zk-compression")]`.
-> *Why?* There is a known hard ecosystem conflict: `anchor-lang 0.30.1` hard-pins `solana-instruction = "=2.2.1"`, while `light-sdk 0.23.0` requires `solana-instruction = "^2.3"`. Once Anchor 0.31 ships tracking Solana SDK 2.3+, the feature gate can be enabled in `Cargo.toml`. The TypeScript client is fully functional today alongside standard PDAs using `SOLQUEUE_COMPRESSED=1`.
+> *Why?* There is a known hard ecosystem conflict: `anchor-lang 0.30.1` hard-pins `solana-instruction = "=2.2.1"`, while `light-sdk 0.23.0` requires `solana-instruction = "^2.3"`. Once Anchor 0.31 ships tracking Solana SDK 2.3+, the feature gate can be enabled in `Cargo.toml`. The TypeScript client is fully functional today alongside standard PDAs using `DECQUEUE_COMPRESSED=1`.
 
 ### 4. Tradeoffs & Constraints
 
@@ -142,7 +142,7 @@ npm run client
 ```
 
 By default the CLI now targets `localnet` and uses your normal Solana wallet unless `WALLET_PATH` is set.
-Override the cluster with `npm run client:devnet` or `SOLQUEUE_CLUSTER`.
+Override the cluster with `npm run client:devnet` or `DECQUEUE_CLUSTER`.
 
 Run the example worker against an existing queue:
 
@@ -161,13 +161,13 @@ simple built-in demo handlers.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SOLQUEUE_CLUSTER` | `localnet` | Target cluster (`localnet`, `devnet`, `mainnet-beta`) |
-| `SOLQUEUE_QUEUE` | — | Queue PDA (alternative to positional arg) |
-| `SOLQUEUE_POLL_MS` | `5000` | Polling interval in milliseconds |
-| `SOLQUEUE_RETRY_AFTER_SECS` | `30` | Base retry delay for failed jobs |
-| `SOLQUEUE_WORKER_ONCE` | `0` | Set to `1` for a single processing pass then exit |
+| `DECQUEUE_CLUSTER` | `localnet` | Target cluster (`localnet`, `devnet`, `mainnet-beta`) |
+| `DECQUEUE_QUEUE` | — | Queue PDA (alternative to positional arg) |
+| `DECQUEUE_POLL_MS` | `5000` | Polling interval in milliseconds |
+| `DECQUEUE_RETRY_AFTER_SECS` | `30` | Base retry delay for failed jobs |
+| `DECQUEUE_WORKER_ONCE` | `0` | Set to `1` for a single processing pass then exit |
 | `WALLET_PATH` | `~/.config/solana/id.json` | Path to the worker's keypair file |
-| `SOLQUEUE_COMPRESSED` | `0` | Set to `1` to use the experimental ZK Compression light-rpc paths. |
+| `DECQUEUE_COMPRESSED` | `0` | Set to `1` to use the experimental ZK Compression light-rpc paths. |
 
 ## Test
 
@@ -231,7 +231,7 @@ The payer for the new job PDA is the connected wallet, not the queue authority.
 Optional: set a default queue in `app/.env.example` / `.env.local`:
 
 ```powershell
-VITE_SOLQUEUE_DEFAULT_QUEUE=<QUEUE_PDA>
+VITE_DECQUEUE_DEFAULT_QUEUE=<QUEUE_PDA>
 ```
 
 The install script uses a repo-local npm cache under `.npm-cache/` to avoid Windows AppData permission issues.

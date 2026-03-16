@@ -15,7 +15,7 @@ import {
 } from "./solana";
 import { useSolanaWallet } from "./useSolanaWallet";
 
-const DEFAULT_QUEUE = import.meta.env.VITE_SOLQUEUE_DEFAULT_QUEUE ?? "";
+const DEFAULT_QUEUE = import.meta.env.VITE_DECQUEUE_DEFAULT_QUEUE ?? "";
 const AUTO_REFRESH_MS = 15000;
 
 const STATUS_COLORS: Record<JobStatus, { bg: string; accent: string; text: string; dot: string }> = {
@@ -666,7 +666,7 @@ export default function App() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ color: "#3b82f6", fontSize: 14, fontWeight: 700, letterSpacing: -0.5 }}>SOLQUEUE</div>
+          <div style={{ color: "#3b82f6", fontSize: 14, fontWeight: 700, letterSpacing: -0.5 }}>DECQUEUE</div>
           <div style={{ width: 1, height: 20, background: "#1e1e1e" }} />
           <div style={{ color: "#444", fontSize: 10, letterSpacing: 2 }}>ON-CHAIN JOB QUEUE</div>
           <div style={{ width: 1, height: 20, background: "#1e1e1e" }} />

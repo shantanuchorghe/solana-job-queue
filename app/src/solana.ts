@@ -5,7 +5,7 @@ import {
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
-import idlJson from "./idl/sol_queue.json";
+import idlJson from "./idl/dec_queue.json";
 import {
   MAX_JOB_PAYLOAD_BYTES,
   MAX_JOB_TYPE_LENGTH,
@@ -15,7 +15,7 @@ import {
   cancelJobWithProgram,
   endpointForCluster,
   payloadByteLength,
-} from "./solqueue-core";
+} from "./decqueue-core";
 import type { BrowserWalletAdapter } from "./useSolanaWallet";
 
 export type Cluster = "devnet" | "localnet";

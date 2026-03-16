@@ -7,7 +7,7 @@ const walletPath = path.resolve(
   repoRoot,
   process.env.WALLET_PATH || ".anchor/local-validator-wallet.json"
 );
-const rpcUrl = process.env.SOLQUEUE_RPC_URL || "http://127.0.0.1:8899";
+const rpcUrl = process.env.DECQUEUE_RPC_URL || "http://127.0.0.1:8899";
 
 function run(command, args, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {

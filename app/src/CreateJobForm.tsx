@@ -65,7 +65,7 @@ export default function CreateJobForm({
 }: CreateJobFormProps) {
   const [jobType, setJobType] = useState("send-email");
   const [payloadText, setPayloadText] = useState(
-    '{\n  "to": "user@example.com",\n  "subject": "Hello from SolQueue"\n}'
+    '{\n  "to": "user@example.com",\n  "subject": "Hello from DecQueue"\n}'
   );
   const [priority, setPriority] = useState<0 | 1 | 2>(1);
   const [delayMs, setDelayMs] = useState("0");

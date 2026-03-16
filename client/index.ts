@@ -24,9 +24,9 @@ import {
   endpointForCluster,
   type Cluster,
   type IndexType,
-} from "../shared/solqueue-core";
-import { SolQueue } from "../target/types/sol_queue";
-import idl from "../target/idl/sol_queue.json";
+} from "../shared/decqueue-core";
+import { DecQueue } from "../target/types/dec_queue";
+import idl from "../target/idl/dec_queue.json";
 
 export type { Cluster };
 
@@ -107,24 +107,24 @@ export function loadWalletFromFile(walletPath = defaultWalletPath()): anchor.Wal
   return new anchor.Wallet(loadKeypairFromFile(walletPath));
 }
 
-export class SolQueueClient {
+export class DecQueueClient {
   constructor(
-    public program: Program<SolQueue>,
+    public program: Program<DecQueue>,
     public provider: AnchorProvider
   ) {}
 
   static async connect(
     wallet: anchor.Wallet,
     cluster: Cluster = "localnet"
-  ): Promise<SolQueueClient> {
+  ): Promise<DecQueueClient> {
     const connection = new Connection(endpointForCluster(cluster), "confirmed");
     const provider = new AnchorProvider(connection, wallet, {
       commitment: "confirmed",
     });
     anchor.setProvider(provider);
 
-    const program = new Program<SolQueue>(idl as unknown as SolQueue, provider);
-    return new SolQueueClient(program, provider);
+    const program = new Program<DecQueue>(idl as unknown as DecQueue, provider);
+    return new DecQueueClient(program, provider);
   }
 
   deriveQueuePda(authority: PublicKey, queueName: string): [PublicKey, number] {
@@ -570,13 +570,13 @@ export class SolQueueClient {
 
 async function main() {
   const walletPath = process.env.WALLET_PATH ?? defaultWalletPath();
-  const cluster = (process.env.SOLQUEUE_CLUSTER as Cluster | undefined) ?? "localnet";
-  const queueName = process.env.SOLQUEUE_QUEUE_NAME ?? `email-${Date.now().toString(36)}`;
+  const cluster = (process.env.DECQUEUE_CLUSTER as Cluster | undefined) ?? "localnet";
+  const queueName = process.env.DECQUEUE_QUEUE_NAME ?? `email-${Date.now().toString(36)}`;
   const payer = loadKeypairFromFile(walletPath);
   const wallet = new anchor.Wallet(payer);
 
   console.log(`Connecting to ${cluster}...`);
-  const client = await SolQueueClient.connect(wallet, cluster);
+  const client = await DecQueueClient.connect(wallet, cluster);
   console.log(`   Wallet: ${payer.publicKey.toBase58()}\n`);
 
   console.log(`Creating queue: ${queueName}`);

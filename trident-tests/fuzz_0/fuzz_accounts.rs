@@ -6,7 +6,7 @@
 //! `Pubkey` so instructions that reference the same account across a flow
 //! always get the same key.
 //!
-//! # Why this matters for SolQueue
+//! # Why this matters for DecQueue
 //! Each queue, queue_head, and job PDA is derived deterministically from
 //! (authority, name) or (queue_pubkey, job_id).  If Trident picked a random
 //! Pubkey for "the queue" in every instruction, the program would always fail

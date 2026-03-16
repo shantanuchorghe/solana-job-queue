@@ -1,7 +1,7 @@
 {
-  "name": "solqueue-app",
+  "name": "decqueue-app",
   "version": "0.1.0",
-  "description": "SolQueue — On-Chain Job Queue Dashboard",
+  "description": "DecQueue — On-Chain Job Queue Dashboard",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -1,4 +1,4 @@
-//! test_fuzz.rs — SolQueue property-based fuzz test
+//! test_fuzz.rs — DecQueue property-based fuzz test
 //!
 //! # What this file tests
 //!
@@ -36,13 +36,13 @@
 //! }
 //! ```
 //!
-//! TridentSVM runs the compiled `sol_queue` library in-process — no validator
+//! TridentSVM runs the compiled `dec_queue` library in-process — no validator
 //! needed, ~10 000 transactions/second on a modern laptop.
 
 #![allow(unused_imports)]
 use anchor_lang::prelude::Pubkey;
 use arbitrary::Arbitrary;
-use sol_queue::{
+use dec_queue::{
     state::{Job, JobIndex, JobStatus, QueueHead, MAX_INDEX_ENTRIES},
 };
 use trident_fuzz::prelude::*;
@@ -364,12 +364,12 @@ impl FuzzTest {
         let head      = self.queue_head_pda(&queue);
         let page0     = self.index_page_pda(&queue, 0);
 
-        let ix = sol_queue::instruction::InitializeQueue {
+        let ix = dec_queue::instruction::InitializeQueue {
             queue_name: name.to_string(),
             max_retries: 3,
         };
 
-        let accounts = sol_queue::accounts::InitializeQueue {
+        let accounts = dec_queue::accounts::InitializeQueue {
             queue,
             queue_head: head,
             first_index_page: page0,
@@ -378,7 +378,7 @@ impl FuzzTest {
         };
 
         self.trident.process_transaction_with_signer(
-            &sol_queue::ID,
+            &dec_queue::ID,
             ix,
             accounts,
             &authority,
@@ -388,7 +388,7 @@ impl FuzzTest {
 
     fn ix_enqueue_job(&mut self, auth_idx: u8, queue: &Pubkey, input: &EnqueueInput) -> (TridentResult, u64) {
         let authority  = self.fuzz_accounts.authority.get(&mut self.trident, auth_idx as usize);
-        let queue_data = self.trident.get_account_with_type::<sol_queue::state::Queue>(queue, 8);
+        let queue_data = self.trident.get_account_with_type::<dec_queue::state::Queue>(queue, 8);
         let job_id     = queue_data.map(|q| q.job_count).unwrap_or(0);
 
         let job_pda    = self.job_pda(queue, job_id);
@@ -401,14 +401,14 @@ impl FuzzTest {
         let job_type   = String::from_utf8_lossy(&input.job_type[..]).to_string();
         let job_type   = if job_type.is_empty() { "fuzz-job".to_string() } else { job_type };
 
-        let ix = sol_queue::instruction::EnqueueJob {
+        let ix = dec_queue::instruction::EnqueueJob {
             payload,
             job_type: job_type[..job_type.len().min(32)].to_string(),
             priority: input.priority % 3,   // clamp to 0/1/2
             execute_after: input.execute_after.max(0),
         };
 
-        let accounts = sol_queue::accounts::EnqueueJob {
+        let accounts = dec_queue::accounts::EnqueueJob {
             queue: *queue,
             job: job_pda,
             queue_head: head_pda,
@@ -418,7 +418,7 @@ impl FuzzTest {
         };
 
         let result = self.trident.process_transaction_with_signer(
-            &sol_queue::ID, ix, accounts, &authority, "enqueue_job",
+            &dec_queue::ID, ix, accounts, &authority, "enqueue_job",
         );
 
         (result, job_id)
@@ -429,32 +429,32 @@ impl FuzzTest {
         let job_pda   = self.job_pda(queue, job_id);
         let page_pda  = self.index_page_pda(queue, page_seq);
 
-        let ix = sol_queue::instruction::ClaimJob {};
-        let accounts = sol_queue::accounts::ClaimJob {
+        let ix = dec_queue::instruction::ClaimJob {};
+        let accounts = dec_queue::accounts::ClaimJob {
             job:              job_pda,
             worker:           worker.pubkey(),
             source_index_page: page_pda,
         };
 
         self.trident.process_transaction_with_signer(
-            &sol_queue::ID, ix, accounts, &worker, "claim_job",
+            &dec_queue::ID, ix, accounts, &worker, "claim_job",
         )
     }
 
     fn ix_complete_job(&mut self, worker_idx: u8, queue: &Pubkey, job_id: u64, result: Option<String>) -> TridentResult {
         let worker   = self.fuzz_accounts.worker.get(&mut self.trident, worker_idx as usize);
         let job_pda  = self.job_pda(queue, job_id);
-        let queue_data = self.trident.get_account_with_type::<sol_queue::state::Queue>(queue, 8);
+        let queue_data = self.trident.get_account_with_type::<dec_queue::state::Queue>(queue, 8);
 
-        let ix = sol_queue::instruction::CompleteJob { result };
-        let accounts = sol_queue::accounts::CompleteJob {
+        let ix = dec_queue::instruction::CompleteJob { result };
+        let accounts = dec_queue::accounts::CompleteJob {
             queue: *queue,
             job:   job_pda,
             worker: worker.pubkey(),
         };
 
         self.trident.process_transaction_with_signer(
-            &sol_queue::ID, ix, accounts, &worker, "complete_job",
+            &dec_queue::ID, ix, accounts, &worker, "complete_job",
         )
     }
 
@@ -471,11 +471,11 @@ impl FuzzTest {
         let job_pda    = self.job_pda(queue, job_id);
         let retry_page = self.index_page_pda(queue, retry_page_seq);
 
-        let ix = sol_queue::instruction::FailJob {
+        let ix = dec_queue::instruction::FailJob {
             error_message: error_message[..error_message.len().min(128)].to_string(),
             retry_after_secs: retry_after_secs.max(1),
         };
-        let accounts = sol_queue::accounts::FailJob {
+        let accounts = dec_queue::accounts::FailJob {
             queue: *queue,
             job:   job_pda,
             worker: worker.pubkey(),
@@ -483,7 +483,7 @@ impl FuzzTest {
         };
 
         self.trident.process_transaction_with_signer(
-            &sol_queue::ID, ix, accounts, &worker, "fail_job",
+            &dec_queue::ID, ix, accounts, &worker, "fail_job",
         )
     }
 
@@ -494,8 +494,8 @@ impl FuzzTest {
         let curr_tail = self.index_page_pda(queue, head.tail_index_seq);
         let new_tail  = self.index_page_pda(queue, new_seq);
 
-        let ix = sol_queue::instruction::GrowIndex { new_seq };
-        let accounts = sol_queue::accounts::GrowIndex {
+        let ix = dec_queue::instruction::GrowIndex { new_seq };
+        let accounts = dec_queue::accounts::GrowIndex {
             queue: *queue,
             queue_head: head_pda,
             current_tail_page: curr_tail,
@@ -505,7 +505,7 @@ impl FuzzTest {
         };
 
         self.trident.process_transaction_with_signer(
-            &sol_queue::ID, ix, accounts, &authority, "grow_index",
+            &dec_queue::ID, ix, accounts, &authority, "grow_index",
         )
     }
 
@@ -514,14 +514,14 @@ impl FuzzTest {
         let head_pda  = self.queue_head_pda(queue);
         let head_page = self.index_page_pda(queue, head.head_index_seq);
 
-        let ix = sol_queue::instruction::AdvanceHead {};
-        let accounts = sol_queue::accounts::AdvanceHead {
+        let ix = dec_queue::instruction::AdvanceHead {};
+        let accounts = dec_queue::accounts::AdvanceHead {
             queue_head: head_pda,
             head_page,
         };
 
         self.trident.process_transaction(
-            &sol_queue::ID, ix, accounts, "advance_head",
+            &dec_queue::ID, ix, accounts, "advance_head",
         )
     }
 }
@@ -666,10 +666,10 @@ impl FuzzTest {
                 // Any other error from a racing claim is a potential bug.
                 let code = claim_res.custom_error_code();
                 let known_fail_codes = [
-                    sol_queue::errors::JobQueueError::JobNotPending  as u32,
-                    sol_queue::errors::JobQueueError::JobNotReady    as u32,
-                    sol_queue::errors::JobQueueError::JobNotInIndex  as u32,
-                    sol_queue::errors::JobQueueError::QueueMismatch  as u32,
+                    dec_queue::errors::JobQueueError::JobNotPending  as u32,
+                    dec_queue::errors::JobQueueError::JobNotReady    as u32,
+                    dec_queue::errors::JobQueueError::JobNotInIndex  as u32,
+                    dec_queue::errors::JobQueueError::QueueMismatch  as u32,
                 ];
                 if let Some(code) = code {
                     assert!(
@@ -811,7 +811,7 @@ impl FuzzTest {
         }
         assert!(
             premature_grow.is_custom_error_with_code(
-                sol_queue::errors::JobQueueError::IndexNotFull as u32
+                dec_queue::errors::JobQueueError::IndexNotFull as u32
             ),
             "grow_index failed with unexpected error when page not full: {:?}",
             premature_grow.custom_error_code()
@@ -826,7 +826,7 @@ impl FuzzTest {
             let (res, _) = self.ix_enqueue_job(auth_idx, &queue_pda, &base);
             assert!(
                 res.is_success() || res.is_custom_error_with_code(
-                    sol_queue::errors::JobQueueError::IndexFull as u32
+                    dec_queue::errors::JobQueueError::IndexFull as u32
                 ),
                 "enqueue_job failed unexpectedly during page fill: {:?}",
                 res.custom_error_code()
@@ -938,7 +938,7 @@ impl FuzzTest {
             );
             assert!(
                 attack_complete.is_custom_error_with_code(
-                    sol_queue::errors::JobQueueError::Unauthorized as u32
+                    dec_queue::errors::JobQueueError::Unauthorized as u32
                 ),
                 "Expected Unauthorized error, got: {:?}",
                 attack_complete.custom_error_code()
@@ -965,7 +965,7 @@ impl FuzzTest {
 /// Returns true if a TridentResult failed with the Unauthorized error code.
 fn fi_worker_mismatch(result: &TridentResult) -> bool {
     result.is_custom_error_with_code(
-        sol_queue::errors::JobQueueError::Unauthorized as u32
+        dec_queue::errors::JobQueueError::Unauthorized as u32
     )
 }
 

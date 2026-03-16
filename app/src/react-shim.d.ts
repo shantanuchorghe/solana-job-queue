@@ -32,7 +32,7 @@ declare module "react-dom/client" {
   };
 }
 
-declare module "@target/idl/sol_queue.json" {
+declare module "@target/idl/dec_queue.json" {
   const value: { address: string };
   export default value;
 }

@@ -1,12 +1,12 @@
 [package]
-name = "sol-queue"
+name = "dec-queue"
 version = "0.1.0"
 description = "On-Chain Job Queue — rebuild of Bull/Redis/SQS as a Solana Anchor program"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "sol_queue"
+name = "dec_queue"
 
 [features]
 no-entrypoint = []

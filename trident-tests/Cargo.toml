@@ -1,5 +1,5 @@
 [package]
-name = "sol-queue-fuzz"
+name = "dec-queue-fuzz"
 version = "0.1.0"
 edition = "2021"
 
@@ -20,7 +20,7 @@ trident-fuzz = "0.9.0"
 # Import as a library (cdylib + lib crate-type in program/Cargo.toml).
 # "no-entrypoint" feature prevents the BPF entrypoint from being linked
 # twice when TridentSVM loads it as a native lib.
-sol-queue = { path = "../program", features = ["no-entrypoint"] }
+dec-queue = { path = "../program", features = ["no-entrypoint"] }
 
 # ── Utility ───────────────────────────────────────────────────────────────────
 borsh = "0.10"

@@ -1,5 +1,5 @@
 /**
- * fee-strategy.ts — HybridFeeStrategy for SolQueue workers
+ * fee-strategy.ts — HybridFeeStrategy for DecQueue workers
  *
  * Solana under congestion drops transactions that aren't competitive for block
  * inclusion. Two mechanisms fight this:
@@ -90,7 +90,7 @@ export interface HybridFeeStrategyConfig {
 
   /**
    * Compute unit budget for transactions.
-   * SolQueue instructions use well under 200k CU — 80k is a safe ceiling.
+   * DecQueue instructions use well under 200k CU — 80k is a safe ceiling.
    */
   computeUnitLimit: number;
 

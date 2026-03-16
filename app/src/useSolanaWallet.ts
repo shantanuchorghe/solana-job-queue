@@ -46,7 +46,7 @@ export interface SolanaWalletState {
   disconnect(): Promise<void>;
 }
 
-const WALLET_STORAGE_KEY = "solqueue-wallet-provider";
+const WALLET_STORAGE_KEY = "decqueue-wallet-provider";
 const WALLET_ORDER: WalletProviderId[] = ["phantom", "brave", "solana"];
 
 function isWalletProvider(value: unknown): value is BrowserWalletAdapter {
