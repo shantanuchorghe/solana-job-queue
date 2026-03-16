@@ -10,9 +10,11 @@ Configured program ID: `GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a`
 
 - Anchor program: real
 - TypeScript client / CLI demo: real
-- TypeScript worker loop: real
+- TypeScript worker loop: real (with Jito Bundler integration & Hybrid Fee strategies)
 - Anchor test suite: real
-- React dashboard: real live queue explorer with wallet-based job creation, backed by live RPC reads
+- Property-based Fuzzing: real (built with Trident)
+- React dashboard: real live queue explorer, deployed to Vercel, with wallet-based job creation and cancellation
+- Backend deployment: built-in Railway/Render Dockerfile configs for 24/7 worker polling
 
 ## Core Features
 
@@ -26,7 +28,10 @@ Configured program ID: `GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a`
 - Authority-only cancellation paths
 - **Dynamic Linked-List Worker Indexes**: Workers read O(1) page PDAs instead of scanning the network
 - **ZK Compression Ready**: First-class support for storing Job data in the ledger (zero rent) using the `light-sdk`
-- Wallet-based job creation from the React dashboard (Phantom / Brave wallet support)
+- **Hybrid Fee Strategy**: Dynamic priority fees based on network congestion, falling back to exponential backoff
+- **Jito Bundle Integration**: Skip the mempool and target Jito block engines directly during high-congestion periods
+- **Trident Property-based Fuzzing**: Validates queue invariants (sequence rollovers, authority restrictions) under high concurrency
+- Wallet-based job creation and cancellation from the React dashboard (Phantom / Brave wallet support)
 - Live event subscriptions via `program.addEventListener`
 
 ## Architecture & Design Analysis
@@ -79,19 +84,36 @@ DecQueue includes a **fully implemented ZK Compression path** using `@lightproto
 > _Note to judges: Here are live interaction links on Devnet:_
 
 - **Program ID**: [`GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a`](https://explorer.solana.com/address/GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a?cluster=devnet)
-- **Queue Creation TX**: `[INSERT_DEVNET_DEPLOY_LINK_HERE]`
-- **Enqueue Job TX**: `[INSERT_ENQUEUE_TX_HERE]`
-- **Claim & Complete Job TX**: `[INSERT_COMPLETE_TX_HERE]`
+- **Example Live Queue**: [`AY7RuEfdVHJJWYS4YoCTQ2XDChb2bDxqZK3ft8seLSBm`](https://explorer.solana.com/address/AY7RuEfdVHJJWYS4YoCTQ2XDChb2bDxqZK3ft8seLSBm?cluster=devnet)
+- **Live Vercel Frontend**: [Pending Vercel Link]
+
+### 6. Jito Bundles & Hybrid Fee Strategy
+
+Relying on standard RPC nodes during high Solana congestion means jobs will get dropped. DecQueue workers ship with a `HybridFeeStrategy` that seamlessly toggles between:
+- **Standard Mode**: Dynamically fetches the `75th percentile` trailing compute budget fee from the network and attaches it to the transaction.
+- **Jito Mode**: Bypasses the public mempool and submits the `claim_job` and `execute_job` directly to Jito Block Engines, guaranteeing atomic execution and avoiding front-running.
+
+If a transaction is dropped in Standard Mode, it exponentially backs off and retries, eventually falling back to zero-tip modes if the job is no longer considered "high-priority."
+
+### 7. Trident Property-based Fuzzing
+
+Due to the complex nature of our O(1) Linked-List Queue implementation (involving sequence rollovers and head/tail PDA pointer updates), traditional unit tests aren't enough. DecQueue implements **Trident Fuzzing**.
+
+Trident runs thousands of concurrent simulation scenarios to ensure our critical invariants are never broken:
+1. `QueueHead.total_jobs` exactly matches the number of JobAccount PDAs.
+2. A Job's `worker` (authority) field can never be hijacked after claim.
+3. Linked-list sequence boundaries (256 items per page) never overflow under concurrent enqueues.
 
 ## Repo Layout
 ```text
-program/   Anchor program (Rust)
-shared/    Shared TypeScript utilities (PDA derivation, types, enqueue logic)
-client/    TypeScript SDK + CLI + worker
-tests/     TypeScript Anchor tests
-app/       Vite + React live dashboard
-scripts/   Wrapper scripts for build/test/deploy
-vendor/    Local compatibility patch for anchor-syn
+program/       Anchor program (Rust)
+shared/        Shared TypeScript utilities (PDA derivation, types, enqueue logic)
+client/        TypeScript SDK + worker with Jito & HybridFeeStrategy
+tests/         TypeScript Anchor tests
+trident-tests/ Property-based Rust coverage for queue invariants
+app/           Vite + React live dashboard
+scripts/       Wrapper scripts for build/test/deploy
+vendor/        Local compatibility patch for anchor-syn
 ```
 
 ## Prerequisites
@@ -263,7 +285,7 @@ On Windows, that wrapper:
 
 ## Honest Limitations
 
-- The dashboard supports job creation via wallet, but does not yet support cancel, pause/resume, or retry operations from the UI.
+- The dashboard supports job creation and cancellation, but does not yet support pause/resume or retry operations from the UI.
 - The example worker handles demo job types locally; it is not a generalized production worker runtime.
 - Local validator startup may fail on some Windows environments with OS error `1314`.
 - Devnet deployment of the current program binary needs materially more than `0.5 SOL`; budget closer to `~3 SOL` to have room for deploy + queue/job creation.
