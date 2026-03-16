@@ -4,12 +4,16 @@ import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import {
+  PROGRAM_ID,
+  deriveJobPda,
+  deriveQueuePda,
+  enqueueJobWithProgram,
+  endpointForCluster,
+  type Cluster,
+} from "../shared/solqueue-core";
 import { SolQueue } from "../target/types/sol_queue";
 import idl from "../target/idl/sol_queue.json";
-
-export const PROGRAM_ID = new PublicKey("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
-
-export type Cluster = "devnet" | "localnet" | "mainnet-beta";
 
 export interface JobData {
   [key: string]: unknown;
@@ -42,16 +46,6 @@ export interface QueueStats {
   failedJobs: number;
   paused: boolean;
   createdAt: Date;
-}
-
-export function endpointForCluster(cluster: Cluster): string {
-  const endpoints: Record<Cluster, string> = {
-    devnet: "https://api.devnet.solana.com",
-    localnet: "http://127.0.0.1:8899",
-    "mainnet-beta": "https://api.mainnet-beta.solana.com",
-  };
-
-  return endpoints[cluster];
 }
 
 export function formatTxLocation(signature: string, cluster: Cluster): string {
@@ -104,19 +98,11 @@ export class SolQueueClient {
   }
 
   deriveQueuePda(authority: PublicKey, queueName: string): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("queue"), authority.toBuffer(), Buffer.from(queueName)],
-      this.program.programId
-    );
+    return deriveQueuePda(this.program.programId, authority, queueName);
   }
 
   deriveJobPda(queuePubkey: PublicKey, jobId: number): [PublicKey, number] {
-    const idBuffer = Buffer.alloc(8);
-    idBuffer.writeBigUInt64LE(BigInt(jobId));
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("job"), queuePubkey.toBuffer(), idBuffer],
-      this.program.programId
-    );
+    return deriveJobPda(this.program.programId, queuePubkey, jobId);
   }
 
   async createQueue(
@@ -162,27 +148,20 @@ export class SolQueueClient {
       delay?: number;
     } = {}
   ): Promise<{ jobPda: PublicKey; jobId: number; signature: string }> {
-    const { priority = 1, delay = 0 } = options;
-    const queueData = await this.program.account.queue.fetch(queuePda);
-    const jobId = queueData.jobCount.toNumber();
-    const [jobPda] = this.deriveJobPda(queuePda, jobId);
-    const payload = Buffer.from(JSON.stringify(data));
-    const executeAfter =
-      delay > 0
-        ? new BN(Math.floor(Date.now() / 1000) + Math.floor(delay / 1000))
-        : new BN(0);
+    const result = await enqueueJobWithProgram({
+      program: this.program,
+      payer: this.provider.wallet.publicKey,
+      queuePda,
+      jobType,
+      payload: data,
+      options,
+    });
 
-    const signature = await this.program.methods
-      .enqueueJob(payload, jobType, priority, executeAfter)
-      .accounts({
-        queue: queuePda,
-        job: jobPda,
-        payer: this.provider.wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      } as any)
-      .rpc();
-
-    return { jobPda, jobId, signature };
+    return {
+      jobPda: result.jobPda,
+      jobId: result.jobId,
+      signature: result.signature,
+    };
   }
 
   async getJob(jobPda: PublicKey): Promise<JobRecord> {

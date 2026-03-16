@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
+import CreateJobForm from "./CreateJobForm";
 import {
   fetchQueueSnapshot,
   getProgramId,
   subscribeToQueueEvents,
   type Cluster,
+  type EnqueueJobResult,
   type JobStatus,
   type JobView,
   type LiveEvent,
   type QueueSnapshot,
 } from "./solana";
+import { useSolanaWallet } from "./useSolanaWallet";
 
 const DEFAULT_QUEUE = import.meta.env.VITE_SOLQUEUE_DEFAULT_QUEUE ?? "";
 const AUTO_REFRESH_MS = 15000;
@@ -375,21 +378,21 @@ function EmptyState({
         Load a real queue PDA to turn this dashboard from prototype into a live Solana monitor.
       </div>
       <div style={{ color: "#6a6a6a", fontSize: 12, lineHeight: 1.8, maxWidth: 620, marginBottom: 24 }}>
-        This MVP reads actual queue and job accounts from devnet or localnet. Creation and worker execution stay in the CLI so the dashboard can stay lightweight and demo-ready.
+        This MVP reads queue and job accounts directly from devnet or localnet. Once a queue is loaded, you can enqueue jobs from the dashboard with your wallet and watch workers process them live.
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 1, background: "#141414" }}>
         <StatCard label="Program" value={truncate(getProgramId(), 8, 6)} accent="#3b82f6" sublabel="same program id on localnet/devnet" />
-        <StatCard label="Write Path" value="CLI" accent="#f59e0b" sublabel="create, enqueue, work" />
+        <StatCard label="Write Path" value="WALLET TX" accent="#f59e0b" sublabel="enqueue from the dashboard" />
         <StatCard label="Read Path" value="LIVE RPC" accent="#22c55e" sublabel="queue and jobs come from chain" />
         <StatCard label="Queue Input" value={queueInput ? "READY" : "MISSING"} accent={queueInput ? "#22c55e" : "#ef4444"} sublabel="paste queue PDA above" />
       </div>
 
       <div style={{ marginTop: 24, padding: 16, background: "#0d0d0d", border: "1px solid #1a1a1a", color: "#5f5f5f", fontSize: 11, lineHeight: 1.8 }}>
         <div>1. Deploy the program on devnet.</div>
-        <div>2. Create a queue and enqueue jobs from the CLI.</div>
-        <div>3. Run the worker to process them.</div>
-        <div>4. Paste the queue PDA here to inspect the queue live.</div>
+        <div>2. Connect a Solana wallet in the dashboard.</div>
+        <div>3. Paste a queue PDA and enqueue a job from the form.</div>
+        <div>4. Run the worker to process it live.</div>
       </div>
 
       {DEFAULT_QUEUE ? (
@@ -448,6 +451,7 @@ export default function App() {
   const [selectedJobKey, setSelectedJobKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const wallet = useSolanaWallet();
 
   const refreshQueue = useCallback(
     async (quiet = false) => {
@@ -556,6 +560,23 @@ export default function App() {
     setActiveQueue(queueInput.trim());
   }
 
+  const handleJobCreated = useCallback(
+    async (result: EnqueueJobResult) => {
+      setSelectedJobKey(result.jobPda);
+      setEvents((previous) => [
+        {
+          id: `job-created-${result.jobId}-${Date.now()}`,
+          text: `JOB #${result.jobId} ENQUEUED FROM ${wallet.shortAddress ?? "WALLET"}`,
+          timestamp: new Date(),
+          kind: "system" as const,
+        },
+        ...previous,
+      ].slice(0, 10));
+      await refreshQueue(true);
+    },
+    [refreshQueue, wallet.shortAddress]
+  );
+
   return (
     <div
       style={{
@@ -612,6 +633,20 @@ export default function App() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ color: wallet.connected ? "#22c55e" : "#555", fontSize: 10 }}>
+            WALLET: <span style={{ color: wallet.connected ? "#86efac" : "#777" }}>{wallet.shortAddress ?? "DISCONNECTED"}</span>
+          </div>
+          <button
+            onClick={() => void (wallet.connected ? wallet.disconnect() : wallet.connect())}
+            disabled={wallet.connecting || (!wallet.available && !wallet.connected)}
+            style={{
+              ...buttonStyle,
+              color: wallet.connected ? "#86efac" : wallet.available ? "#3b82f6" : "#444",
+              borderColor: wallet.connected ? "#22c55e" : wallet.available ? "#3b82f6" : "#222",
+            }}
+          >
+            {wallet.connected ? "DISCONNECT" : wallet.connecting ? "CONNECTING" : "CONNECT WALLET"}
+          </button>
           <div style={{ color: "#333", fontSize: 10 }}>
             PROGRAM: <span style={{ color: "#555" }}>{truncate(getProgramId(), 8, 8)}</span>
           </div>
@@ -666,12 +701,18 @@ export default function App() {
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginTop: 12, color: "#444", fontSize: 10, flexWrap: "wrap" }}>
           <span>Auto refresh every {AUTO_REFRESH_MS / 1000}s</span>
-          <span>For writes, use the CLI producer and worker included in this repo.</span>
+          <span>Reads use RPC. New jobs are created with wallet-signed transactions.</span>
         </div>
 
         {error ? (
           <div style={{ marginTop: 12, color: "#fca5a5", background: "#1f0e0e", border: "1px solid #3a1e1e", padding: "10px 12px", fontSize: 11 }}>
             {error}
+          </div>
+        ) : null}
+
+        {wallet.error ? (
+          <div style={{ marginTop: 12, color: "#fcd34d", background: "#1f1a0e", border: "1px solid #4b3a12", padding: "10px 12px", fontSize: 11 }}>
+            {wallet.error}
           </div>
         ) : null}
       </div>
@@ -732,9 +773,17 @@ export default function App() {
             </div>
 
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #141414" }}>
+              <div style={{ color: "#333", fontSize: 9, letterSpacing: 2, marginBottom: 12 }}>WALLET WRITE PATH</div>
+              <div style={{ color: wallet.connected ? "#86efac" : "#666", fontSize: 10, lineHeight: 1.8 }}>
+                <div>{wallet.connected ? `connected: ${wallet.shortAddress}` : "connect a wallet to enqueue jobs"}</div>
+                <div>{snapshot.queue.paused ? "queue is paused for new jobs" : "dashboard writes go straight to the program"}</div>
+              </div>
+            </div>
+
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #141414" }}>
               <div style={{ color: "#333", fontSize: 9, letterSpacing: 2, marginBottom: 12 }}>OPERATIONS</div>
               <div style={{ color: "#666", fontSize: 10, lineHeight: 1.8 }}>
-                <div>client: `npm run client:devnet`</div>
+                <div>producer: dashboard form or `npm run client:devnet`</div>
                 <div>worker: `npm run worker:devnet -- {snapshot.queue.publicKey}`</div>
                 <div>last refresh: {formatTimestamp(snapshot.fetchedAt)}</div>
               </div>
@@ -770,6 +819,13 @@ export default function App() {
               <StatCard label="Completed" value={snapshot.queue.completedJobs} accent="#22c55e" sublabel={`${successRate}% observed success rate`} />
               <StatCard label="Failed" value={snapshot.queue.failedJobs} accent="#ef4444" sublabel={snapshot.queue.paused ? "queue is paused" : "queue is accepting jobs"} />
             </div>
+
+            <CreateJobForm
+              cluster={cluster}
+              queue={snapshot.queue}
+              wallet={wallet}
+              onJobCreated={handleJobCreated}
+            />
 
             <div style={{ display: "grid", gridTemplateColumns: selectedJob ? "1fr 380px" : "1fr", flex: 1, overflow: "hidden" }}>
               <div style={{ overflow: "auto" }}>

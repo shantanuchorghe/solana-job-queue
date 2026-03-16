@@ -6,6 +6,16 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import idlJson from "./idl/sol_queue.json";
+import {
+  MAX_JOB_PAYLOAD_BYTES,
+  MAX_JOB_TYPE_LENGTH,
+  PROGRAM_ID,
+  deriveJobPda,
+  enqueueJobWithProgram,
+  endpointForCluster,
+  payloadByteLength,
+} from "../../shared/solqueue-core";
+import type { BrowserWalletAdapter } from "./useSolanaWallet";
 
 export type Cluster = "devnet" | "localnet";
 export type JobStatus = "pending" | "processing" | "completed" | "failed" | "cancelled";
@@ -56,9 +66,16 @@ export interface LiveEvent {
   kind: "event" | "system";
 }
 
-const PROGRAM_ID = new PublicKey((idlJson as { address: string }).address);
 const IDL = idlJson as Idl;
 const decoder = new TextDecoder();
+const IDL_PROGRAM_ID = new PublicKey((idlJson as { address: string }).address);
+
+export interface EnqueueJobResult {
+  jobId: number;
+  jobPda: string;
+  signature: string;
+  payloadBytes: number;
+}
 
 const READONLY_WALLET = {
   publicKey: new PublicKey("11111111111111111111111111111111"),
@@ -70,13 +87,33 @@ const READONLY_WALLET = {
   },
 };
 
-function endpointForCluster(cluster: Cluster): string {
-  return cluster === "devnet" ? "https://api.devnet.solana.com" : "http://127.0.0.1:8899";
+function createAnchorWallet(wallet: BrowserWalletAdapter) {
+  return {
+    get publicKey(): PublicKey {
+      if (!wallet.publicKey) {
+        throw new Error("Connect your wallet to enqueue a job.");
+      }
+
+      return wallet.publicKey;
+    },
+    async signTransaction<T extends Transaction | VersionedTransaction>(transaction: T): Promise<T> {
+      return wallet.signTransaction(transaction);
+    },
+    async signAllTransactions<T extends Transaction | VersionedTransaction>(transactions: T[]): Promise<T[]> {
+      if (wallet.signAllTransactions) {
+        return wallet.signAllTransactions(transactions);
+      }
+
+      return Promise.all(transactions.map((transaction) => wallet.signTransaction(transaction)));
+    },
+  };
 }
 
-function getProgram(cluster: Cluster) {
+function getProgram(cluster: Cluster, wallet?: BrowserWalletAdapter | null) {
   const connection = new Connection(endpointForCluster(cluster), "confirmed");
-  const provider = new AnchorProvider(connection, READONLY_WALLET, { commitment: "confirmed" });
+  const provider = new AnchorProvider(connection, wallet ? createAnchorWallet(wallet) : READONLY_WALLET, {
+    commitment: "confirmed",
+  });
   const program = new Program(IDL, provider) as any;
   return { connection, program };
 }
@@ -99,19 +136,6 @@ function toDate(value: { toNumber(): number } | number | null | undefined): Date
   }
 
   return new Date(toNumber(value) * 1000);
-}
-
-function deriveJobPda(queuePublicKey: PublicKey, jobId: number): PublicKey {
-  const idBytes = new Uint8Array(8);
-  const view = new DataView(idBytes.buffer);
-  view.setBigUint64(0, BigInt(jobId), true);
-
-  const [jobPda] = PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("job"), queuePublicKey.toBytes(), idBytes],
-    PROGRAM_ID
-  );
-
-  return jobPda;
 }
 
 function parsePayload(payload: number[] | Uint8Array): { parsed: unknown; text: string } {
@@ -173,7 +197,51 @@ function formatEvent(eventName: string, event: any): string {
 }
 
 export function getProgramId(): string {
-  return PROGRAM_ID.toBase58();
+  return IDL_PROGRAM_ID.toBase58();
+}
+
+export function getPayloadByteLength(payload: unknown): number {
+  return payloadByteLength(payload);
+}
+
+export async function enqueueJobFromWallet({
+  cluster,
+  queueAddress,
+  wallet,
+  jobType,
+  payload,
+  priority = 1,
+  delay = 0,
+}: {
+  cluster: Cluster;
+  queueAddress: string;
+  wallet: BrowserWalletAdapter | null;
+  jobType: string;
+  payload: unknown;
+  priority?: 0 | 1 | 2;
+  delay?: number;
+}): Promise<EnqueueJobResult> {
+  if (!wallet?.publicKey) {
+    throw new Error("Connect your wallet to enqueue a job.");
+  }
+
+  const queuePublicKey = new PublicKey(queueAddress);
+  const { program } = getProgram(cluster, wallet);
+  const result = await enqueueJobWithProgram({
+    program,
+    payer: wallet.publicKey,
+    queuePda: queuePublicKey,
+    jobType,
+    payload,
+    options: { priority, delay },
+  });
+
+  return {
+    jobId: result.jobId,
+    jobPda: result.jobPda.toBase58(),
+    signature: result.signature,
+    payloadBytes: result.payloadBytes,
+  };
 }
 
 export async function fetchQueueSnapshot(cluster: Cluster, queueAddress: string): Promise<QueueSnapshot> {
@@ -185,7 +253,10 @@ export async function fetchQueueSnapshot(cluster: Cluster, queueAddress: string)
   ]);
 
   const totalJobs = toNumber(rawQueue.jobCount);
-  const jobKeys = Array.from({ length: totalJobs }, (_, index) => deriveJobPda(queuePublicKey, index));
+  const jobKeys = Array.from(
+    { length: totalJobs },
+    (_, index) => deriveJobPda(PROGRAM_ID, queuePublicKey, index)[0]
+  );
   const jobs: JobView[] = [];
 
   for (const keyChunk of chunk(jobKeys, 50)) {
@@ -274,3 +345,5 @@ export async function subscribeToQueueEvents(
     await Promise.all(listenerIds.map((listenerId) => program.removeEventListener(listenerId)));
   };
 }
+
+export { MAX_JOB_PAYLOAD_BYTES, MAX_JOB_TYPE_LENGTH };
