@@ -1,0 +1,37 @@
+{
+  "name": "solana-job-queue",
+  "version": "0.1.0",
+  "description": "On-chain job queue built with Solana Anchor",
+  "scripts": {
+    "build": "node scripts/run-anchor.js build",
+    "test": "npm run test:localnet:attached",
+    "test:devnet": "node scripts/run-tests.js devnet",
+    "test:localnet": "node scripts/run-tests.js localnet",
+    "test:localnet:attached": "node scripts/run-tests.js localnet",
+    "deploy:localnet": "node scripts/run-anchor.js deploy --provider.cluster localnet",
+    "deploy:devnet": "node scripts/run-anchor.js deploy --provider.cluster devnet",
+    "localnet:setup": "node scripts/prepare-localnet.js",
+    "client": "node scripts/run-client.js",
+    "client:localnet": "node scripts/run-client.js localnet .anchor/local-validator-wallet.json",
+    "client:devnet": "node scripts/run-client.js devnet",
+    "worker": "node scripts/run-worker.js",
+    "worker:devnet": "node scripts/run-worker.js devnet",
+    "app:install": "npm --prefix app install --cache .npm-cache/app",
+    "app": "npm --prefix app run dev",
+    "app:build": "npm --prefix app run build"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/web3.js": "^1.91.8"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^18.0.0",
+    "chai": "^4.3.4",
+    "mocha": "^9.0.3",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}

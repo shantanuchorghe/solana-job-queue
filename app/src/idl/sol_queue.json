@@ -1,0 +1,1018 @@
+{
+  "address": "BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas",
+  "metadata": {
+    "name": "sol_queue",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "On-Chain Job Queue — rebuild of Bull/Redis/SQS as a Solana Anchor program"
+  },
+  "instructions": [
+    {
+      "name": "cancel_job",
+      "docs": [
+        "Cancel a pending or processing job (queue authority only).",
+        "",
+        "Web2: `await queue.remove(jobId)` — Redis DEL + LREM",
+        "Solana: Authority-gated cancel. Only queue.authority can cancel.",
+        "This is analogous to an admin console \"remove job\" action,",
+        "enforced cryptographically — no admin password needed."
+      ],
+      "discriminator": [
+        126,
+        241,
+        155,
+        241,
+        50,
+        236,
+        83,
+        118
+      ],
+      "accounts": [
+        {
+          "name": "queue",
+          "writable": true,
+          "relations": [
+            "job"
+          ]
+        },
+        {
+          "name": "job",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_job",
+      "docs": [
+        "Claim a job — worker atomically locks it for processing.",
+        "",
+        "Web2: `const job = await worker.getNextJob()`",
+        "→ Redis atomic BRPOPLPUSH pending→processing (prevents double-claim)",
+        "Solana: Worker signs the tx. Job status flips Pending → Processing.",
+        "Worker pubkey is stamped on the job account — no other worker",
+        "can complete or fail it. Replaces distributed locks entirely.",
+        "The blockchain itself is the mutex."
+      ],
+      "discriminator": [
+        9,
+        160,
+        5,
+        231,
+        116,
+        123,
+        198,
+        14
+      ],
+      "accounts": [
+        {
+          "name": "job",
+          "writable": true
+        },
+        {
+          "name": "worker",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "complete_job",
+      "docs": [
+        "Mark a job as completed and write the result on-chain.",
+        "",
+        "Web2: `await job.moveToCompleted('{\"sent\":true}', true)`",
+        "→ Redis DEL active:job, ZADD completed:job score=ts",
+        "Solana: Only the claiming worker can call this — enforced by",
+        "comparing job.worker == signer. Result stored on the",
+        "job account, readable by anyone, forever, trustlessly."
+      ],
+      "discriminator": [
+        221,
+        216,
+        225,
+        72,
+        101,
+        250,
+        3,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "queue",
+          "writable": true,
+          "relations": [
+            "job"
+          ]
+        },
+        {
+          "name": "job",
+          "writable": true
+        },
+        {
+          "name": "worker",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "result",
+          "type": {
+            "option": "string"
+          }
+        }
+      ]
+    },
+    {
+      "name": "enqueue_job",
+      "docs": [
+        "Enqueue a job with optional scheduling and priority.",
+        "",
+        "Web2: `await emailQueue.add('send-welcome', { to: 'user@example.com' }, { priority: 1 })`",
+        "→ Redis LPUSH / SQS SendMessage",
+        "Solana: Creates a Job PDA keyed by (queue_pubkey, job_id u64).",
+        "Payload stored as raw bytes (max 512 bytes).",
+        "`execute_after` enables cron-style delayed execution",
+        "without any external scheduler process."
+      ],
+      "discriminator": [
+        15,
+        126,
+        169,
+        237,
+        239,
+        18,
+        69,
+        7
+      ],
+      "accounts": [
+        {
+          "name": "queue",
+          "writable": true
+        },
+        {
+          "name": "job",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  111,
+                  98
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "account",
+                "path": "queue.job_count",
+                "account": "Queue"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "payload",
+          "type": "bytes"
+        },
+        {
+          "name": "job_type",
+          "type": "string"
+        },
+        {
+          "name": "priority",
+          "type": "u8"
+        },
+        {
+          "name": "execute_after",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "fail_job",
+      "docs": [
+        "Fail a job — triggers automatic retry with exponential backoff.",
+        "",
+        "Web2: `await job.moveToFailed({ message: 'SMTP timeout' })`",
+        "→ Bull checks attempts < maxRetries, re-queues with delay",
+        "Solana: Identical retry logic, fully on-chain state machine.",
+        "If attempts < max_retries → status reverts to Pending,",
+        "execute_after = now + (retry_after * 2^attempt) (backoff).",
+        "If exhausted → JobStatus::Failed (dead letter queue equivalent).",
+        "No external scheduler, no Redis TTL, no cron job required."
+      ],
+      "discriminator": [
+        211,
+        222,
+        65,
+        39,
+        115,
+        107,
+        125,
+        43
+      ],
+      "accounts": [
+        {
+          "name": "queue",
+          "writable": true,
+          "relations": [
+            "job"
+          ]
+        },
+        {
+          "name": "job",
+          "writable": true
+        },
+        {
+          "name": "worker",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "error_message",
+          "type": "string"
+        },
+        {
+          "name": "retry_after_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_queue",
+      "docs": [
+        "Initialize a named queue.",
+        "",
+        "Web2: `new Queue('email-jobs', { connection: redisConfig })`",
+        "Solana: Creates a PDA keyed by (authority, queue_name).",
+        "The queue account stores metadata and a monotonic job counter."
+      ],
+      "discriminator": [
+        174,
+        102,
+        132,
+        232,
+        90,
+        202,
+        27,
+        20
+      ],
+      "accounts": [
+        {
+          "name": "queue",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  101,
+                  117,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "queue_name"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "queue_name",
+          "type": "string"
+        },
+        {
+          "name": "max_retries",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "set_queue_paused",
+      "docs": [
+        "Pause or resume a queue.",
+        "",
+        "Web2: `await queue.pause()` / `await queue.resume()`",
+        "→ Bull sets queue:paused = 1 in Redis",
+        "Solana: Single boolean on queue PDA. Checked atomically in enqueue_job.",
+        "Workers should check queue.paused before claim_job off-chain."
+      ],
+      "discriminator": [
+        75,
+        37,
+        8,
+        150,
+        81,
+        113,
+        10,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "queue",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Job",
+      "discriminator": [
+        75,
+        124,
+        80,
+        203,
+        161,
+        180,
+        202,
+        80
+      ]
+    },
+    {
+      "name": "Queue",
+      "discriminator": [
+        204,
+        167,
+        6,
+        247,
+        20,
+        33,
+        2,
+        188
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "JobCancelled",
+      "discriminator": [
+        203,
+        84,
+        143,
+        130,
+        48,
+        134,
+        74,
+        191
+      ]
+    },
+    {
+      "name": "JobClaimed",
+      "discriminator": [
+        176,
+        110,
+        104,
+        38,
+        27,
+        220,
+        61,
+        191
+      ]
+    },
+    {
+      "name": "JobCompleted",
+      "discriminator": [
+        176,
+        207,
+        246,
+        115,
+        95,
+        179,
+        9,
+        132
+      ]
+    },
+    {
+      "name": "JobEnqueued",
+      "discriminator": [
+        253,
+        145,
+        52,
+        57,
+        172,
+        39,
+        112,
+        100
+      ]
+    },
+    {
+      "name": "JobFailed",
+      "discriminator": [
+        239,
+        142,
+        192,
+        215,
+        175,
+        72,
+        19,
+        44
+      ]
+    },
+    {
+      "name": "JobRetrying",
+      "discriminator": [
+        243,
+        247,
+        60,
+        225,
+        130,
+        6,
+        255,
+        250
+      ]
+    },
+    {
+      "name": "QueueCreated",
+      "discriminator": [
+        18,
+        135,
+        244,
+        181,
+        162,
+        83,
+        90,
+        175
+      ]
+    },
+    {
+      "name": "QueuePauseChanged",
+      "discriminator": [
+        119,
+        113,
+        147,
+        17,
+        142,
+        38,
+        83,
+        126
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NameTooLong",
+      "msg": "Queue name must be between 1 and 32 characters"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidRetries",
+      "msg": "max_retries cannot exceed 10"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidPriority",
+      "msg": "Priority must be 0 (low), 1 (normal), or 2 (high)"
+    },
+    {
+      "code": 6003,
+      "name": "PayloadTooLarge",
+      "msg": "Payload exceeds 512 byte limit"
+    },
+    {
+      "code": 6004,
+      "name": "ResultTooLarge",
+      "msg": "Result or error message exceeds 128 character limit"
+    },
+    {
+      "code": 6005,
+      "name": "JobNotPending",
+      "msg": "Job must be in Pending status to be claimed"
+    },
+    {
+      "code": 6006,
+      "name": "JobNotProcessing",
+      "msg": "Job must be in Processing status to complete or fail"
+    },
+    {
+      "code": 6007,
+      "name": "JobNotReady",
+      "msg": "Job execute_after time has not been reached yet"
+    },
+    {
+      "code": 6008,
+      "name": "Unauthorized",
+      "msg": "Signer is not authorized for this operation"
+    },
+    {
+      "code": 6009,
+      "name": "CannotCancel",
+      "msg": "Job is in a terminal state and cannot be cancelled"
+    },
+    {
+      "code": 6010,
+      "name": "QueuePaused",
+      "msg": "Queue is paused — no new jobs can be enqueued"
+    },
+    {
+      "code": 6011,
+      "name": "QueueFull",
+      "msg": "Queue job_count overflow — this queue has processed u64::MAX jobs"
+    },
+    {
+      "code": 6012,
+      "name": "Overflow",
+      "msg": "Counter overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "Job",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "docs": [
+              "The queue this job belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "job_id",
+            "docs": [
+              "Monotonic ID within the queue (used as PDA seed)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "job_type",
+            "docs": [
+              "Job type identifier — workers use this to route to handler functions",
+              "e.g. \"send-email\", \"resize-image\", \"send-webhook\""
+            ],
+            "type": "string"
+          },
+          {
+            "name": "payload",
+            "docs": [
+              "Arbitrary serialized payload — typically JSON or borsh bytes",
+              "Workers deserialize this to get job arguments"
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Current lifecycle state"
+            ],
+            "type": {
+              "defined": {
+                "name": "JobStatus"
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "docs": [
+              "0=low, 1=normal, 2=high — workers can fetch by priority off-chain"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "When this job was enqueued"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "execute_after",
+            "docs": [
+              "Earliest time this job can be claimed (enables delayed/scheduled jobs)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "attempts",
+            "docs": [
+              "Number of times this job has been attempted (incremented on claim)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "max_retries",
+            "docs": [
+              "Maximum attempts before permanent failure"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "worker",
+            "docs": [
+              "The worker that currently holds / last processed this job"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "started_at",
+            "docs": [
+              "When the current/last processing attempt began"
+            ],
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "completed_at",
+            "docs": [
+              "When the job reached a terminal state (Completed/Failed/Cancelled)"
+            ],
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "result",
+            "docs": [
+              "Result data written by the worker on success"
+            ],
+            "type": {
+              "option": "string"
+            }
+          },
+          {
+            "name": "error_message",
+            "docs": [
+              "Error message on failure"
+            ],
+            "type": {
+              "option": "string"
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "job_id",
+            "type": "u64"
+          },
+          {
+            "name": "cancelled_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "cancelled_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "job_id",
+            "type": "u64"
+          },
+          {
+            "name": "worker",
+            "type": "pubkey"
+          },
+          {
+            "name": "attempt",
+            "type": "u8"
+          },
+          {
+            "name": "claimed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobCompleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "job_id",
+            "type": "u64"
+          },
+          {
+            "name": "worker",
+            "type": "pubkey"
+          },
+          {
+            "name": "result",
+            "type": {
+              "option": "string"
+            }
+          },
+          {
+            "name": "completed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobEnqueued",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "job_id",
+            "type": "u64"
+          },
+          {
+            "name": "job_type",
+            "type": "string"
+          },
+          {
+            "name": "priority",
+            "type": "u8"
+          },
+          {
+            "name": "execute_after",
+            "type": "i64"
+          },
+          {
+            "name": "enqueued_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobFailed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "job_id",
+            "type": "u64"
+          },
+          {
+            "name": "attempts",
+            "type": "u8"
+          },
+          {
+            "name": "error",
+            "type": "string"
+          },
+          {
+            "name": "failed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobRetrying",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "job_id",
+            "type": "u64"
+          },
+          {
+            "name": "attempt",
+            "type": "u8"
+          },
+          {
+            "name": "retry_at",
+            "type": "i64"
+          },
+          {
+            "name": "error",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Processing"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Failed"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Queue",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "The wallet/program that created and controls this queue"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Human-readable queue name (e.g. \"email-notifications\")"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "job_count",
+            "docs": [
+              "Monotonically increasing counter — used as job PDA seed",
+              "Never decrements, so job PDAs are always derivable from (queue, id)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_count",
+            "docs": [
+              "Live count of Pending + Processing jobs"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "processed_count",
+            "docs": [
+              "Total successfully completed jobs"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "failed_count",
+            "docs": [
+              "Total permanently failed jobs (dead letter count)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_retries",
+            "docs": [
+              "Default max retry attempts for jobs created in this queue"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "When true, new jobs cannot be enqueued"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp of queue creation"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QueueCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QueuePauseChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "changed_by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    }
+  ]
+}
