@@ -1,0 +1,870 @@
+﻿anchor : info: uninstalling toolchain solana
+At line:1 char:1
++ anchor build > build_output.txt 2>&1; 
+Get-Content build_output.txt |  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (inf 
+   o: uninstalling toolchain solana:String) [],  
+   RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+info: toolchain solana uninstalled
+    Finished release [optimized] target(s) in 
+0.30s
+warning: hiding a lifetime that's elided 
+elsewhere is confusing
+  --> G:\Coding\projects\solana-job-queue\solana-
+job-queue\vendor\anchor-syn\src\parser\context.rs
+:41:20
+   |
+41 |     pub fn modules(&self) -> impl 
+Iterator<Item = ModuleContext> {
+   |                    ^^^^^                    
+      ^^^^^^^^^^^^^ the same lifetime is hidden 
+here
+   |                    |
+   |                    the lifetime is elided 
+here
+   |
+   = help: the same lifetime is referred to in 
+inconsistent ways, making the signature confusing
+   = note: 
+`#[warn(mismatched_lifetime_syntaxes)]` on by 
+default
+help: use `'_` for type paths
+   |
+41 |     pub fn modules(&self) -> impl 
+Iterator<Item = ModuleContext<'_>> {
+   |                                             
+                   ++++
+
+warning: hiding a lifetime that's elided 
+elsewhere is confusing
+  --> G:\Coding\projects\solana-job-queue\solana-
+job-queue\vendor\anchor-syn\src\parser\context.rs
+:45:24
+   |
+45 |     pub fn root_module(&self) -> 
+ModuleContext {
+   |                        ^^^^^     
+^^^^^^^^^^^^^ the same lifetime is hidden here
+   |                        |
+   |                        the lifetime is 
+elided here
+   |
+   = help: the same lifetime is referred to in 
+inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+45 |     pub fn root_module(&self) -> 
+ModuleContext<'_> {
+   |                                             
+  ++++
+
+warning: `anchor-syn` (lib) generated 2 warnings 
+(run `cargo fix --lib -p anchor-syn` to apply 2 
+suggestions)
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+ --> src\lib.rs:7:7
+  |
+7 | #[cfg(feature = "zk-compression")]
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+  = help: consider adding `zk-compression` as a 
+feature in `Cargo.toml`
+  = note: see <https://doc.rust-lang.org/nightly/
+rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+  = note: `#[warn(unexpected_cfgs)]` on by 
+default
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+  --> src\lib.rs:19:7
+   |
+19 | #[cfg(feature = "zk-compression")]
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+   = help: consider adding `zk-compression` as a 
+feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly
+/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\lib.rs:902:7
+    |
+902 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\lib.rs:943:7
+    |
+943 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\lib.rs:984:7
+    |
+984 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+    --> src\lib.rs:1042:7
+     |
+1042 | #[cfg(feature = "zk-compression")]
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+     = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/night
+ly/rustc/check-cfg/cargo-specifics.html> for 
+more information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+    --> src\lib.rs:1053:7
+     |
+1053 | #[cfg(feature = "zk-compression")]
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+     = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/night
+ly/rustc/check-cfg/cargo-specifics.html> for 
+more information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+    --> src\lib.rs:1063:7
+     |
+1063 | #[cfg(feature = "zk-compression")]
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+     = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/night
+ly/rustc/check-cfg/cargo-specifics.html> for 
+more information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`custom-heap`
+  --> src\lib.rs:59:1
+   |
+59 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+   = note: using a cfg inside a macro will use 
+the cfgs from the destination crate and not the 
+ones from the defining crate
+   = help: try referring to 
+`$crate::custom_heap_default` crate for guidance 
+on how handle this unexpected cfg
+   = help: the macro 
+`$crate::custom_heap_default` may come from an 
+old version of the `solana_program` crate, try 
+updating your dependency with `cargo update -p 
+solana_program`
+   = note: see <https://doc.rust-lang.org/nightly
+/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+   = note: this warning originates in the macro 
+`$crate::custom_heap_default` which comes from 
+the expansion of the attribute macro `program` 
+(in Nightly builds, run with -Z macro-backtrace 
+for more info)
+
+warning: unexpected `cfg` condition value: 
+`solana`
+  --> src\lib.rs:59:1
+   |
+59 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `target_os` are: 
+`aix`, `amdhsa`, `android`, `cuda`, `cygwin`, 
+`dragonfly`, `emscripten`, `espidf`, `freebsd`, 
+`fuchsia`, `haiku`, `helenos`, `hermit`, 
+`horizon`, `hurd`, `illumos`, `ios`, `l4re`, 
+`linux`, `lynxos178`, `macos`, `managarm`, 
+`motor`, `netbsd`, `none`, `nto`, `nuttx`, 
+`openbsd`, `psp`, `psx`, `qurt`, `redox`, 
+`rtems`, `solaris`, and `solid_asp3` and 14 more
+   = note: using a cfg inside a macro will use 
+the cfgs from the destination crate and not the 
+ones from the defining crate
+   = help: try referring to 
+`$crate::custom_heap_default` crate for guidance 
+on how handle this unexpected cfg
+   = help: the macro 
+`$crate::custom_heap_default` may come from an 
+old version of the `solana_program` crate, try 
+updating your dependency with `cargo update -p 
+solana_program`
+   = note: see <https://doc.rust-lang.org/nightly
+/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+   = note: this warning originates in the macro 
+`$crate::custom_heap_default` which comes from 
+the expansion of the attribute macro `program` 
+(in Nightly builds, run with -Z macro-backtrace 
+for more info)
+
+warning: unexpected `cfg` condition value: 
+`custom-panic`
+  --> src\lib.rs:59:1
+   |
+59 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+   = note: using a cfg inside a macro will use 
+the cfgs from the destination crate and not the 
+ones from the defining crate
+   = help: try referring to 
+`$crate::custom_panic_default` crate for 
+guidance on how handle this unexpected cfg
+   = help: the macro 
+`$crate::custom_panic_default` may come from an 
+old version of the `solana_program` crate, try 
+updating your dependency with `cargo update -p 
+solana_program`
+   = note: see <https://doc.rust-lang.org/nightly
+/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+   = note: this warning originates in the macro 
+`$crate::custom_panic_default` which comes from 
+the expansion of the attribute macro `program` 
+(in Nightly builds, run with -Z macro-backtrace 
+for more info)
+
+warning: unexpected `cfg` condition value: 
+`solana`
+  --> src\lib.rs:59:1
+   |
+59 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `target_os` are: 
+`aix`, `amdhsa`, `android`, `cuda`, `cygwin`, 
+`dragonfly`, `emscripten`, `espidf`, `freebsd`, 
+`fuchsia`, `haiku`, `helenos`, `hermit`, 
+`horizon`, `hurd`, `illumos`, `ios`, `l4re`, 
+`linux`, `lynxos178`, `macos`, `managarm`, 
+`motor`, `netbsd`, `none`, `nto`, `nuttx`, 
+`openbsd`, `psp`, `psx`, `qurt`, `redox`, 
+`rtems`, `solaris`, and `solid_asp3` and 14 more
+   = note: using a cfg inside a macro will use 
+the cfgs from the destination crate and not the 
+ones from the defining crate
+   = help: try referring to 
+`$crate::custom_panic_default` crate for 
+guidance on how handle this unexpected cfg
+   = help: the macro 
+`$crate::custom_panic_default` may come from an 
+old version of the `solana_program` crate, try 
+updating your dependency with `cargo update -p 
+solana_program`
+   = note: see <https://doc.rust-lang.org/nightly
+/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+   = note: this warning originates in the macro 
+`$crate::custom_panic_default` which comes from 
+the expansion of the attribute macro `program` 
+(in Nightly builds, run with -Z macro-backtrace 
+for more info)
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:358:7
+    |
+358 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:360:7
+    |
+360 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:373:7
+    |
+373 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:375:7
+    |
+375 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:377:7
+    |
+377 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:379:7
+    |
+379 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:381:7
+    |
+381 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:406:7
+    |
+406 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:458:7
+    |
+458 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:499:7
+    |
+499 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`zk-compression`
+   --> src\state.rs:501:7
+    |
+501 | #[cfg(feature = "zk-compression")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = help: consider adding `zk-compression` as 
+a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+  --> src\lib.rs:59:1
+   |
+59 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+   = note: using a cfg inside a attribute macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+   = help: try referring to `program` crate for 
+guidance on how handle this unexpected cfg
+   = help: the attribute macro `program` may 
+come from an old version of the 
+`anchor_attribute_program` crate, try updating 
+your dependency with `cargo update -p 
+anchor_attribute_program`
+   = note: see <https://doc.rust-lang.org/nightly
+/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+   = note: this warning originates in the 
+attribute macro `program` (in Nightly builds, 
+run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+  --> src\lib.rs:59:1
+   |
+59 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+   = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+   = help: try referring to `Accounts` crate for 
+guidance on how handle this unexpected cfg
+   = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+   = note: see <https://doc.rust-lang.org/nightly
+/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+   = note: this warning originates in the derive 
+macro `Accounts` (in Nightly builds, run with -Z 
+macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:526:10
+    |
+526 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:570:10
+    |
+570 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:609:10
+    |
+609 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:628:10
+    |
+628 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:671:10
+    |
+671 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:690:10
+    |
+690 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:702:10
+    |
+702 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:723:10
+    |
+723 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:743:10
+    |
+743 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: 
+`anchor-debug`
+   --> src\lib.rs:853:10
+    |
+853 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: 
+`cpi`, `default`, `idl-build`, `no-entrypoint`, 
+`no-idl`, and `no-log-ix-name`
+    = note: using a cfg inside a derive macro 
+will use the cfgs from the destination crate and 
+not the ones from the defining crate
+    = help: try referring to `Accounts` crate 
+for guidance on how handle this unexpected cfg
+    = help: the derive macro `Accounts` may come 
+from an old version of the 
+`anchor_derive_accounts` crate, try updating 
+your dependency with `cargo update -p 
+anchor_derive_accounts`
+    = note: see <https://doc.rust-lang.org/nightl
+y/rustc/check-cfg/cargo-specifics.html> for more 
+information about checking conditional 
+configuration
+    = note: this warning originates in the 
+derive macro `Accounts` (in Nightly builds, run 
+with -Z macro-backtrace for more info)
+
+warning: `dec-queue` (lib test) generated 40 
+warnings (5 duplicates)
+    Finished `test` profile [unoptimized + 
+debuginfo] target(s) in 0.37s
+     Running unittests src\lib.rs (C:\Users\shant
+\AppData\Local\Temp\solqueue-target\debug\deps\de
+c_queue-96b04b928093a213.exe)

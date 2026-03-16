@@ -1,0 +1,37 @@
+﻿cargo : info: uninstalling toolchain solana
+At line:1 char:1
++ cargo build-sbf --manifest-path 
+program/Cargo.toml > error.txt 2>&1;  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (inf 
+   o: uninstalling toolchain solana:String) [],  
+   RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+info: toolchain solana uninstalled
+error: failed to download `blake3 v1.8.3`
+
+Caused by:
+  unable to get packages from source
+
+Caused by:
+  failed to download replaced source registry 
+`crates-io`
+
+Caused by:
+  failed to parse manifest at `C:\Users\shant\.ca
+rgo\registry\src\index.crates.io-6f17d22bba15001f
+\blake3-1.8.3\Cargo.toml`
+
+Caused by:
+  feature `edition2024` is required
+
+  The package requires the Cargo feature called 
+`edition2024`, but that feature is not 
+stabilized in this version of Cargo (1.75.0 
+(827d7a4d2 2024-02-16)).
+  Consider trying a more recent nightly release.
+  See https://doc.rust-lang.org/nightly/cargo/ref
+erence/unstable.html#edition-2024 for more 
+information about the status of this feature.

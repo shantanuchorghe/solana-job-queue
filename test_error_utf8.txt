@@ -1,0 +1,21 @@
+﻿Deploying cluster: http://127.0.0.1:8899
+Upgrade authority: C:\Users\shant\.config\solana\id.json
+Deploying program "dec_queue"...
+Program path: G:\Coding\projects\solana-job-queue\solana-job-queue\target/deploy/dec_queue.so...
+node : Error: RPC request error: cluster version 
+query failed: error sending request for url 
+(http://127.0.0.1:8899/): error trying to 
+connect: tcp connect error: No connection could 
+be made because the target machine actively 
+refused it. (os error 10061)
+At line:1 char:1
++ node scripts/run-tests.js localnet > 
+test_error.txt 2>&1; cat test_er ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Err 
+   or: RPC requ...os error 10061):String) [], R  
+  emoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+There was a problem deploying: Output { status: ExitStatus(ExitStatus(1)), stdout: "", stderr: "" }.

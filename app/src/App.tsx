@@ -666,7 +666,19 @@ export default function App() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ color: "#3b82f6", fontSize: 14, fontWeight: 700, letterSpacing: -0.5 }}>DECQUEUE</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <img
+              src="/decqueue-logo.png"
+              alt="DecQueue"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                filter: "drop-shadow(0 0 6px rgba(59,130,246,0.4))",
+              }}
+            />
+            <span style={{ color: "#3b82f6", fontSize: 14, fontWeight: 700, letterSpacing: -0.5 }}>DECQUEUE</span>
+          </div>
           <div style={{ width: 1, height: 20, background: "#1e1e1e" }} />
           <div style={{ color: "#444", fontSize: 10, letterSpacing: 2 }}>ON-CHAIN JOB QUEUE</div>
           <div style={{ width: 1, height: 20, background: "#1e1e1e" }} />
