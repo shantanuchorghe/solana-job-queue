@@ -99,7 +99,12 @@ export function defaultWalletPath(): string {
 }
 
 export function loadKeypairFromFile(walletPath: string): Keypair {
-  const keypairData = JSON.parse(fs.readFileSync(walletPath, "utf-8"));
+  let keypairData;
+  if (process.env.WALLET_JSON) {
+    keypairData = JSON.parse(process.env.WALLET_JSON);
+  } else {
+    keypairData = JSON.parse(fs.readFileSync(walletPath, "utf-8"));
+  }
   return Keypair.fromSecretKey(Uint8Array.from(keypairData));
 }
 
