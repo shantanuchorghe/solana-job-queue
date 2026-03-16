@@ -14,7 +14,7 @@ import {
   enqueueJobWithProgram,
   endpointForCluster,
   payloadByteLength,
-} from "../../shared/solqueue-core";
+} from "./solqueue-core";
 import type { BrowserWalletAdapter } from "./useSolanaWallet";
 
 export type Cluster = "devnet" | "localnet";
