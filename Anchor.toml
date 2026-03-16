@@ -6,10 +6,10 @@ seeds = true
 skip-lint = false
 
 [programs.localnet]
-dec_queue = "BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas"
+dec_queue = "GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a"
 
 [programs.devnet]
-dec_queue = "BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas"
+dec_queue = "GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a"
 
 [registry]
 url = "https://api.apr.dev"

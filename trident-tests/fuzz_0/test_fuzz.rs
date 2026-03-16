@@ -61,7 +61,7 @@ const N_WORKERS: usize = 4;
 const INITIAL_JOB_BATCH: usize = 8;
 
 /// Program ID — must match declare_id! in lib.rs
-const PROGRAM_ID: Pubkey = pubkey!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
+const PROGRAM_ID: Pubkey = pubkey!("GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Arbitrary instruction inputs

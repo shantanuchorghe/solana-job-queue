@@ -4,7 +4,7 @@ DecQueue is a Solana Anchor program that models a Bull/BullMQ-style job queue on
 Queues and jobs live in PDAs, and workers move jobs through `pending -> processing -> completed/failed/cancelled`
 using signed transactions instead of a Redis-backed worker loop.
 
-Configured program ID: `BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas`
+Configured program ID: `GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a`
 
 ## Submission Scope
 
@@ -78,7 +78,7 @@ DecQueue includes a **fully implemented ZK Compression path** using `@lightproto
 
 > _Note to judges: Here are live interaction links on Devnet:_
 
-- **Program ID**: [`BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas`](https://explorer.solana.com/address/BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas?cluster=devnet)
+- **Program ID**: [`GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a`](https://explorer.solana.com/address/GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a?cluster=devnet)
 - **Queue Creation TX**: `[INSERT_DEVNET_DEPLOY_LINK_HERE]`
 - **Enqueue Job TX**: `[INSERT_ENQUEUE_TX_HERE]`
 - **Claim & Complete Job TX**: `[INSERT_COMPLETE_TX_HERE]`

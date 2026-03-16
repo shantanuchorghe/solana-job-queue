@@ -11,13 +11,13 @@ use light_sdk::{
     derive_light_cpi_signer,
 };
 
-declare_id!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
+declare_id!("GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a");
 
 // â”€â”€ Register this program with the Light System Program â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The derive_light_cpi_signer! macro generates LIGHT_CPI_SIGNER: CpiSigner,
 // a constant PDA proving to the Light System Program that CPIs originate here.
 #[cfg(feature = "zk-compression")]
-derive_light_cpi_signer!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
+derive_light_cpi_signer!("GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a");
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // DecQueue â€” On-Chain Job Queue Program

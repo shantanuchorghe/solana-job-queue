@@ -1,0 +1,18 @@
+services:
+  - type: worker
+    name: decqueue-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: npx ts-node --esm client/worker.ts
+    envVars:
+      - key: DECQUEUE_CLUSTER
+        value: devnet
+      - key: DECQUEUE_FEE_MODE
+        value: standard
+      - key: DECQUEUE_POLL_MS
+        value: "5000"
+      - key: WALLET_PATH
+        sync: false  # Set manually in Render dashboard
+      - key: NODE_ENV
+        value: production

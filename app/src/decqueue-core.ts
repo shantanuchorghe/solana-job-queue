@@ -2,7 +2,7 @@ import { BN } from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
-export const PROGRAM_ID = new PublicKey("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
+export const PROGRAM_ID = new PublicKey("GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a");
 export const MAX_JOB_PAYLOAD_BYTES = 512;
 export const MAX_JOB_TYPE_LENGTH = 32;
 
