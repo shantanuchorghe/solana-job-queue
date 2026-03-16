@@ -1,0 +1,26 @@
+# Trident Fuzzing Configuration
+# https://ackee.xyz/trident/docs/latest/trident-manifest/
+
+[fuzz]
+# How many fuzzing iterations to run before exiting (0 = run forever).
+# CI should set a finite budget; local dev can leave this at 0.
+fuzzing_with_stats = true
+
+# Whether to print a summary after each iteration during development.
+allow_duplicate_txs  = false   # reject duplicate transaction sequences
+
+[test]
+# ── TridentSVM settings ───────────────────────────────────────────────────────
+# These control the in-process SVM environment used by the fuzzer.
+
+# Solana slot time simulation (ms per slot). Lower = faster, less realistic.
+# At 400ms we match devnet for timing-sensitive invariants.
+solana_slot_ms = 400
+
+# Maximum compute units per transaction (matches mainnet/devnet limit).
+compute_max_units = 400_000
+
+# ── Invariant behaviour ───────────────────────────────────────────────────────
+# On invariant violation, Trident reports the failing seed and crashes.
+# Set to true to generate a minimal reproducible crash corpus entry.
+minimize_corpus_on_crash = true

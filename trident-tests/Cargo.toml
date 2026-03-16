@@ -1,0 +1,32 @@
+[package]
+name = "sol-queue-fuzz"
+version = "0.1.0"
+edition = "2021"
+
+# Tell Cargo this is a fuzz target binary (LibFuzzer / honggfuzz entry point).
+# `trident fuzz run fuzz_0` picks up binaries named after the fuzz test directory.
+[[bin]]
+name = "fuzz_0"
+path = "fuzz_0/test_fuzz.rs"
+
+[dependencies]
+# ── Trident fuzzing runtime ───────────────────────────────────────────────────
+# trident-fuzz 0.9.x is compatible with anchor-lang 0.30.x.
+# It ships TridentSVM: a lightweight in-process SVM that runs your program
+# without needing a live validator, handling thousands of tx/s in the fuzzer loop.
+trident-fuzz = "0.9.0"
+
+# ── Program under test ────────────────────────────────────────────────────────
+# Import as a library (cdylib + lib crate-type in program/Cargo.toml).
+# "no-entrypoint" feature prevents the BPF entrypoint from being linked
+# twice when TridentSVM loads it as a native lib.
+sol-queue = { path = "../program", features = ["no-entrypoint"] }
+
+# ── Utility ───────────────────────────────────────────────────────────────────
+borsh = "0.10"
+arbitrary = { version = "1", features = ["derive"] }
+anchor-lang = "0.30.1"
+
+[patch.crates-io]
+# Same local patch the main workspace uses to satisfy anchor-syn constraints.
+anchor-syn = { path = "../vendor/anchor-syn" }
