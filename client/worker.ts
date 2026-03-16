@@ -1,4 +1,31 @@
-import { PublicKey } from "@solana/web3.js";
+/**
+ * worker.ts — SolQueue worker process with HybridFeeStrategy
+ *
+ * Environment variables:
+ *
+ *   SOLQUEUE_CLUSTER        localnet | devnet | mainnet-beta (default: localnet)
+ *   SOLQUEUE_QUEUE          Queue PDA (alternative to positional arg)
+ *   SOLQUEUE_POLL_MS        Polling interval in ms (default: 5000)
+ *   SOLQUEUE_WORKER_ONCE    Set to "1" for a single processing pass then exit
+ *   SOLQUEUE_RETRY_AFTER_SECS  Base retry delay for failed jobs (default: 30)
+ *   SOLQUEUE_COMPRESSED     Set to "1" to use ZK-compressed job path
+ *   WALLET_PATH             Path to the worker keypair JSON (default: ~/.config/solana/id.json)
+ *
+ *   ── Fee strategy ──────────────────────────────────────────────────────────
+ *   SOLQUEUE_FEE_MODE       standard | jito | auto  (default: auto)
+ *   JITO_BLOCK_ENGINE_URL   Jito block engine REST URL
+ *                           (default: https://ny.mainnet.block-engine.jito.wtf)
+ *   JITO_TIP_LAMPORTS       Lamports to tip Jito per bundle (default: 25000)
+ *   SOLQUEUE_PRIORITY_FEE_PERCENTILE  0–100, fee percentile to bid (default: 75)
+ *   SOLQUEUE_MAX_SEND_ATTEMPTS        Max tx attempts before giving up (default: 4)
+ */
+
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  TransactionInstruction,
+} from "@solana/web3.js";
 import {
   Cluster,
   JobRecord,
@@ -9,14 +36,23 @@ import {
   loadKeypairFromFile,
   loadWalletFromFile,
 } from "./index";
+import {
+  HybridFeeStrategy,
+  HybridFeeStrategyConfig,
+  FeeMode,
+  JobPriority,
+  defaultHybridFeeConfig,
+  getDynamicPriorityFee,
+} from "./fee-strategy";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 const VALID_CLUSTERS = new Set<Cluster>(["localnet", "devnet", "mainnet-beta"]);
 
 function parseCluster(value: string | undefined): Cluster | null {
-  if (!value) {
-    return null;
-  }
-
+  if (!value) return null;
   return VALID_CLUSTERS.has(value as Cluster) ? (value as Cluster) : null;
 }
 
@@ -27,22 +63,38 @@ function parseArgs() {
 
   for (const arg of args) {
     const parsedCluster = parseCluster(arg);
-    if (parsedCluster) {
-      cluster = parsedCluster;
-      continue;
-    }
-
+    if (parsedCluster) { cluster = parsedCluster; continue; }
     positional.push(arg);
   }
 
-  return {
-    cluster,
-    queueArg: positional[0] ?? process.env.SOLQUEUE_QUEUE,
-  };
+  return { cluster, queueArg: positional[0] ?? process.env.SOLQUEUE_QUEUE };
 }
 
+/** Build HybridFeeStrategyConfig from environment variables */
+function buildFeeConfig(): HybridFeeStrategyConfig {
+  const modeEnv = process.env.SOLQUEUE_FEE_MODE as FeeMode | undefined;
+  const validModes: FeeMode[] = ["standard", "jito", "auto"];
+  const mode: FeeMode = validModes.includes(modeEnv!) ? modeEnv! : "auto";
+
+  return defaultHybridFeeConfig({
+    mode,
+    priorityFeePercentile: Number(process.env.SOLQUEUE_PRIORITY_FEE_PERCENTILE ?? 75),
+    retry: {
+      maxAttempts:       Number(process.env.SOLQUEUE_MAX_SEND_ATTEMPTS ?? 4),
+      baseDelayMs:       800,
+      jitterFactor:      0.2,
+      backoffMultiplier: 2.0,
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
 function jobSummary(job: JobRecord): string {
-  return `#${job.jobId} ${job.jobType} [${job.status}]`;
+  const priorityLabel = ["low", "normal", "high"][job.priority] ?? job.priority;
+  return `#${job.jobId} ${job.jobType} [${job.status}] (${priorityLabel})`;
 }
 
 function compactJson(value: unknown): string {
@@ -51,72 +103,44 @@ function compactJson(value: unknown): string {
 
 function renderResult(job: JobRecord): string {
   const payload = job.payload as Record<string, unknown>;
-
   switch (job.jobType) {
     case "send-email":
-      return compactJson({
-        ok: true,
-        to: payload.to ?? "unknown",
-        ref: `msg_${job.jobId.toString(36)}`,
-      });
+      return compactJson({ ok: true, to: payload.to ?? "unknown", ref: `msg_${job.jobId.toString(36)}` });
     case "webhook-call":
-      return compactJson({
-        ok: true,
-        target: payload.url ?? "unknown",
-        code: 202,
-      });
+      return compactJson({ ok: true, target: payload.url ?? "unknown", code: 202 });
     case "image-resize":
-      return compactJson({
-        ok: true,
-        asset: payload.imageId ?? `img_${job.jobId}`,
-        variant: "thumbnail",
-      });
+      return compactJson({ ok: true, asset: payload.imageId ?? `img_${job.jobId}`, variant: "thumbnail" });
     case "daily-report":
-      return compactJson({
-        ok: true,
-        report: payload.reportId ?? `report_${job.jobId}`,
-      });
+      return compactJson({ ok: true, report: payload.reportId ?? `report_${job.jobId}` });
     case "audit-log":
-      return compactJson({
-        ok: true,
-        entry: `audit_${job.jobId}`,
-      });
+      return compactJson({ ok: true, entry: `audit_${job.jobId}` });
     default:
-      return compactJson({
-        ok: true,
-        handledBy: "solqueue-worker",
-        type: job.jobType,
-      });
+      return compactJson({ ok: true, handledBy: "solqueue-worker", type: job.jobType });
   }
 }
 
 async function executeJob(job: JobRecord): Promise<string> {
   const payload = job.payload as Record<string, unknown>;
-
   if (payload.fail === true || payload.shouldFail === true || payload.simulateFailure === true) {
     throw new Error("Job payload requested a simulated failure");
   }
-
   if (typeof payload.throwMessage === "string" && payload.throwMessage.trim().length > 0) {
     throw new Error(payload.throwMessage.trim());
   }
-
   return renderResult(job);
 }
 
 function sortReadyJobs(jobs: JobRecord[]): JobRecord[] {
   return jobs
     .filter((job) => job.status === "pending" && job.executeAfter.getTime() <= Date.now())
-    .sort((left, right) => {
-      if (left.priority !== right.priority) {
-        return right.priority - left.priority;
-      }
-
-      if (left.executeAfter.getTime() !== right.executeAfter.getTime()) {
-        return left.executeAfter.getTime() - right.executeAfter.getTime();
-      }
-
-      return left.jobId - right.jobId;
+    .sort((a, b) => {
+      // Primary: priority desc (high=2 first)
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      // Secondary: earliest executeAfter first
+      if (a.executeAfter.getTime() !== b.executeAfter.getTime())
+        return a.executeAfter.getTime() - b.executeAfter.getTime();
+      // Tertiary: FIFO
+      return a.jobId - b.jobId;
     });
 }
 
@@ -128,130 +152,299 @@ async function fetchJobsByIds(
   const jobs: JobRecord[] = [];
   for (const id of jobIds) {
     const [jobPda] = client.deriveJobPda(queuePda, id);
-    try {
-      jobs.push(await client.getJob(jobPda));
-    } catch {
-      // Skip missing accounts.
-    }
+    try { jobs.push(await client.getJob(jobPda)); } catch { /* missing — skip */ }
   }
   return jobs;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HybridFeeStrategy-aware transaction senders
+//
+// These replicate the SolQueueClient.claimJob / completeJob / failJob flow but
+// intercept the transaction before it is sent so we can prepend ComputeBudget
+// instructions and optionally route through Jito.
+//
+// Why not modify SolQueueClient directly?
+//   SolQueueClient uses Anchor's .rpc() method which builds + signs + sends
+//   internally. To inject compute budget instructions we use .transaction()
+//   instead of .rpc() and pass the resulting Transaction to HybridFeeStrategy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the raw claim_job transaction instructions (without sending) then
+ * dispatch through HybridFeeStrategy with the correct writable accounts for
+ * fee estimation.
+ */
+async function claimWithStrategy(
+  client: SolQueueClient,
+  strategy: HybridFeeStrategy,
+  job: JobRecord,
+  queuePda: PublicKey,
+  worker: Keypair,
+  cluster: Cluster,
+  indexPageSeq: number,
+  useCompressed: boolean
+): Promise<string> {
+  const jobPriority = job.priority as JobPriority;
+
+  // Writable accounts for this tx — used for targeted fee estimation.
+  // job PDA is write-locked; source_index_page is write-locked.
+  const [sourceIndexPage] = client._deriveIndexPagePda(queuePda, indexPageSeq);
+  const writableAccounts  = [job.publicKey, sourceIndexPage];
+
+  // Build the instruction list via Anchor's .instruction() path.
+  // This gives us the raw TransactionInstruction without submitting.
+  let claimIxs: TransactionInstruction[];
+  if (useCompressed) {
+    // Compressed path: needs proof fetch before we can build ix
+    // Fall through to client.claimJob which handles the proof internally
+    // and uses .rpc() — we can't inject CU budget without refactoring.
+    // Use strategy only for the retry wrapper; the inner call is .rpc().
+    return strategy.send(
+      [], // empty — we delegate the actual send to the client method below
+      writableAccounts,
+      jobPriority
+    ).then(() =>
+      client.claimJob(job.publicKey, queuePda, worker, { useCompressed, cluster, indexPageSeq })
+    );
+  }
+
+  // Standard path: build instructions from Anchor program object
+  claimIxs = [
+    await (client.program.methods
+      .claimJob()
+      .accounts({
+        job:              job.publicKey,
+        worker:           worker.publicKey,
+        sourceIndexPage,
+      } as any)
+      .instruction())
+  ];
+
+  return strategy.send(claimIxs, writableAccounts, jobPriority)
+    .then((result) => result.signature);
+}
+
+async function completeWithStrategy(
+  client: SolQueueClient,
+  strategy: HybridFeeStrategy,
+  job: JobRecord,
+  queuePda: PublicKey,
+  worker: Keypair,
+  result: string,
+  cluster: Cluster,
+  useCompressed: boolean
+): Promise<string> {
+  const jobPriority = job.priority as JobPriority;
+  const writableAccounts = [job.publicKey, queuePda];
+
+  if (useCompressed) {
+    return client.completeJob(queuePda, job.publicKey, worker, result, { useCompressed, cluster });
+  }
+
+  const completeIx = await client.program.methods
+    .completeJob(result)
+    .accounts({ queue: queuePda, job: job.publicKey, worker: worker.publicKey } as any)
+    .instruction();
+
+  return strategy.send([completeIx], writableAccounts, jobPriority)
+    .then((r) => r.signature);
+}
+
+async function failWithStrategy(
+  client: SolQueueClient,
+  strategy: HybridFeeStrategy,
+  job: JobRecord,
+  queuePda: PublicKey,
+  worker: Keypair,
+  errorMessage: string,
+  retryAfterSecs: number,
+  cluster: Cluster,
+  indexPageSeq: number,
+  useCompressed: boolean
+): Promise<string> {
+  const jobPriority = job.priority as JobPriority;
+  const [retryIndexPage] = client._deriveIndexPagePda(queuePda, indexPageSeq);
+  const writableAccounts = [job.publicKey, queuePda, retryIndexPage];
+
+  if (useCompressed) {
+    return client.failJob(queuePda, job.publicKey, worker, errorMessage, retryAfterSecs, {
+      useCompressed, cluster, retryIndexPageSeq: indexPageSeq,
+    });
+  }
+
+  const failIx = await client.program.methods
+    .failJob(errorMessage.slice(0, 128), new (await import("@coral-xyz/anchor")).BN(retryAfterSecs))
+    .accounts({ queue: queuePda, job: job.publicKey, worker: worker.publicKey, retryIndexPage } as any)
+    .instruction();
+
+  return strategy.send([failIx], writableAccounts, jobPriority)
+    .then((r) => r.signature);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// processReadyJobs — main loop body
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function processReadyJobs(
   client: SolQueueClient,
   queuePda: PublicKey,
-  worker = loadKeypairFromFile(process.env.WALLET_PATH ?? defaultWalletPath()),
-  cluster: Cluster
+  worker: Keypair,
+  cluster: Cluster,
+  strategy: HybridFeeStrategy
 ): Promise<number> {
-  // SOLQUEUE_COMPRESSED=1 → use ZK-compressed job path (requires enqueue_compressed_job).
-  // Default = standard on-chain Job PDA path.
   const useCompressed = process.env.SOLQUEUE_COMPRESSED === "1";
 
-  // Read pending + delayed indexes instead of scanning all job accounts
+  // O(1) read — indexes tell us exactly which job_ids are ready
   const readyIds = await client.getReadyJobIds(queuePda);
-  if (readyIds.length === 0) {
-    return 0;
-  }
+  if (readyIds.length === 0) return 0;
 
   const candidateJobs = await fetchJobsByIds(client, queuePda, readyIds);
-  const jobs = sortReadyJobs(candidateJobs);
+  const jobs = sortReadyJobs(candidateJobs);  // high priority first
   let processed = 0;
 
   for (const job of jobs) {
-    // Derive which index page currently holds this job.
-    // In the linked-list model, the worker reads QueueHead.head_index_seq
-    // and passes that page. Here we use page seq=0 as a simplification;
-    // a production worker would query queue_head.head_index_seq first.
-    const indexPageSeq = 0;
+    const indexPageSeq = 0;  // production: read queue_head.head_index_seq
 
+    // ── Claim ──────────────────────────────────────────────────────────────
+    let claimSig: string;
     try {
-      // claimJob — with useCompressed=true:
-      //   1. Calls _fetchProofAndMeta → Light indexer fetches ZK proof for this job
-      //   2. Sends claimCompressedJob tx which atomically:
-      //      - Verifies proof (job is PENDING in Merkle root)
-      //      - Removes job_id from source_index_page
-      //      - Updates compressed hash to PROCESSING state
-      //   Any other worker racing will have their proof invalidated after our tx lands.
-      const claimSignature = await client.claimJob(
-        job.publicKey, queuePda, worker,
-        { useCompressed, cluster, indexPageSeq }
+      claimSig = await claimWithStrategy(
+        client, strategy, job, queuePda, worker, cluster, indexPageSeq, useCompressed
       );
-      console.log(`Claimed ${jobSummary(job)} -> ${formatTxLocation(claimSignature, cluster)}`);
-    } catch (error) {
-      console.warn(`Skipped ${jobSummary(job)} because claim failed: ${(error as Error).message}`);
+      console.log(`✓ Claimed  ${jobSummary(job)} → ${formatTxLocation(claimSig, cluster)}`);
+    } catch (err) {
+      console.warn(`✗ Skipped  ${jobSummary(job)} — claim failed: ${(err as Error).message}`);
       continue;
     }
 
+    // ── Execute (off-chain work) ────────────────────────────────────────────
+    let jobResult: string;
+    let jobFailed = false;
+    let failMessage = "";
     try {
-      const result = await executeJob(job);
-      // completeCompressedJob fetches a fresh proof for PROCESSING state,
-      // then atomically transitions the leaf to COMPLETED.
-      const completeSignature = await client.completeJob(
-        queuePda, job.publicKey, worker, result,
-        { useCompressed, cluster }
-      );
-      console.log(`Completed ${jobSummary(job)} -> ${formatTxLocation(completeSignature, cluster)}`);
-      processed += 1;
-    } catch (error) {
-      const message = (error as Error).message.slice(0, 128);
-      // failCompressedJob fetches a fresh PROCESSING proof then:
-      //   - retries remaining → PENDING + exponential backoff + re-index
-      //   - exhausted        → FAILED (dead letter)
-      const failSignature = await client.failJob(
-        queuePda, job.publicKey, worker, message,
-        Number(process.env.SOLQUEUE_RETRY_AFTER_SECS ?? 30),
-        { useCompressed, cluster, retryIndexPageSeq: indexPageSeq }
-      );
-      console.log(`Failed ${jobSummary(job)} -> ${formatTxLocation(failSignature, cluster)} (${message})`);
-      processed += 1;
+      jobResult = await executeJob(job);
+    } catch (err) {
+      jobFailed = true;
+      failMessage = (err as Error).message.slice(0, 128);
+      jobResult = "";
+    }
+
+    // ── Complete or Fail ────────────────────────────────────────────────────
+    if (!jobFailed) {
+      try {
+        const completeSig = await completeWithStrategy(
+          client, strategy, job, queuePda, worker, jobResult, cluster, useCompressed
+        );
+        console.log(`✓ Complete ${jobSummary(job)} → ${formatTxLocation(completeSig, cluster)}`);
+        processed += 1;
+      } catch (err) {
+        console.error(`✗ complete_job tx failed after retries: ${(err as Error).message}`);
+        // The job is on-chain as Processing but we can't complete it here.
+        // The on-chain state is safe — another process can detect stale
+        // Processing jobs via a timeout sweep and re-fail them.
+      }
+    } else {
+      try {
+        const retryAfterSecs = Number(process.env.SOLQUEUE_RETRY_AFTER_SECS ?? 30);
+        const failSig = await failWithStrategy(
+          client, strategy, job, queuePda, worker,
+          failMessage, retryAfterSecs, cluster, indexPageSeq, useCompressed
+        );
+        console.log(`✗ Failed   ${jobSummary(job)} → ${formatTxLocation(failSig, cluster)} (${failMessage})`);
+        processed += 1;
+      } catch (err) {
+        console.error(`✗ fail_job tx failed after retries: ${(err as Error).message}`);
+      }
     }
   }
 
   return processed;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// main
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
   const { cluster, queueArg } = parseArgs();
   if (!queueArg) {
-    throw new Error("Provide a queue PDA via `npm run worker -- <cluster> <queue-pda>` or SOLQUEUE_QUEUE.");
+    throw new Error(
+      "Provide a queue PDA via `npm run worker -- <cluster> <queue-pda>` or SOLQUEUE_QUEUE."
+    );
   }
 
-  const walletPath = process.env.WALLET_PATH ?? defaultWalletPath();
-  const pollMs = Number(process.env.SOLQUEUE_POLL_MS ?? 5000);
-  const once = process.env.SOLQUEUE_WORKER_ONCE === "1";
-  const queuePda = new PublicKey(queueArg);
-  const wallet = loadWalletFromFile(walletPath);
+  const walletPath    = process.env.WALLET_PATH ?? defaultWalletPath();
+  const pollMs        = Number(process.env.SOLQUEUE_POLL_MS ?? 5_000);
+  const once          = process.env.SOLQUEUE_WORKER_ONCE === "1";
+  const queuePda      = new PublicKey(queueArg);
+  const wallet        = loadWalletFromFile(walletPath);
   const workerKeypair = loadKeypairFromFile(walletPath);
-  const client = await SolQueueClient.connect(wallet, cluster);
+  const client        = await SolQueueClient.connect(wallet, cluster);
+  const feeConfig     = buildFeeConfig();
+
+  // ── Build HybridFeeStrategy ───────────────────────────────────────────────
+  const strategy = new HybridFeeStrategy(
+    client.provider.connection,
+    workerKeypair,
+    feeConfig
+  );
+
+  // ── Print startup banner ──────────────────────────────────────────────────
   const stats = await client.getQueueStats(queuePda);
+  console.log(`\n╔══════════════════════════════════════════════════════╗`);
+  console.log(`║          SolQueue Worker (HybridFeeStrategy)         ║`);
+  console.log(`╠══════════════════════════════════════════════════════╣`);
+  console.log(`║  Cluster:    ${cluster.padEnd(38)}║`);
+  console.log(`║  Queue:      ${stats.name.slice(0, 38).padEnd(38)}║`);
+  console.log(`║  PDA:        ${queuePda.toBase58().slice(0, 38).padEnd(38)}║`);
+  console.log(`║  Wallet:     ${wallet.publicKey.toBase58().slice(0, 38).padEnd(38)}║`);
+  console.log(`║  Fee mode:   ${feeConfig.mode.padEnd(38)}║`);
+  console.log(`║  Fee pcntile:${String(feeConfig.priorityFeePercentile + "th percentile").padEnd(38)}║`);
+  console.log(`║  Jito tip:   ${String(feeConfig.jitoTipLamports + " lamports").padEnd(38)}║`);
+  console.log(`║  Retries:    ${String(feeConfig.retry.maxAttempts + " attempts (exp backoff)").padEnd(38)}║`);
+  console.log(`║  Mode:       ${(once ? "single pass" : `poll every ${pollMs}ms`).padEnd(38)}║`);
+  console.log(`╚══════════════════════════════════════════════════════╝\n`);
 
-  console.log(`Worker connected to ${cluster}`);
-  console.log(`Queue:  ${stats.name}`);
-  console.log(`PDA:    ${formatAddressLocation(queuePda.toBase58(), cluster)}`);
-  console.log(`Wallet: ${wallet.publicKey.toBase58()}`);
-  console.log(`Mode:   ${once ? "single pass" : `poll every ${pollMs}ms`}`);
+  // ── Pre-flight: log current fee landscape ─────────────────────────────────
+  try {
+    const currentFee = await getDynamicPriorityFee(
+      client.provider.connection,
+      [queuePda],
+      feeConfig
+    );
+    console.log(`[FeeStrategy] Current estimated priority fee: ${currentFee} µL/CU ` +
+                `(${feeConfig.priorityFeePercentile}th percentile)`);
+  } catch {
+    console.log(`[FeeStrategy] Fee pre-flight skipped (RPC doesn't support getRecentPrioritizationFees)`);
+  }
 
+  // ── Event listeners ───────────────────────────────────────────────────────
   const completedListener = await client.onJobCompleted(({ jobId, result }) => {
-    console.log(`Event: job #${jobId} completed${result ? ` -> ${result}` : ""}`);
+    console.log(`Event: job #${jobId} completed${result ? ` → ${result}` : ""}`);
   });
   const failedListener = await client.onJobFailed(({ jobId, error, attempts }) => {
     console.log(`Event: job #${jobId} failed on attempt ${attempts}: ${error}`);
   });
 
+  // ── Main poll loop ────────────────────────────────────────────────────────
   try {
     do {
-      const processed = await processReadyJobs(client, queuePda, workerKeypair, cluster);
+      const processed = await processReadyJobs(client, queuePda, workerKeypair, cluster, strategy);
+
       if (once) {
-        console.log(`Processed ${processed} ready job(s).`);
+        console.log(`\nProcessed ${processed} ready job(s).`);
         break;
       }
 
       if (processed === 0) {
-        console.log("No ready jobs found.");
+        process.stdout.write(".");  // quiet dot instead of noisy "No ready jobs"
+      } else {
+        console.log(`\nProcessed ${processed} job(s) this pass.`);
       }
 
       await sleep(pollMs);
