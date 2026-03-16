@@ -214,7 +214,21 @@ export default function CreateJobForm({
             >
               {wallet.connecting ? "CONNECTING" : "CONNECT WALLET"}
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              onClick={() => void wallet.switchWallet()}
+              disabled={wallet.connecting || !wallet.available}
+              style={{
+                ...submitStyle,
+                background: wallet.available ? "#231707" : "transparent",
+                borderColor: wallet.available ? "#f59e0b" : "#333",
+                color: wallet.available ? "#fcd34d" : "#555",
+              }}
+            >
+              {wallet.connecting ? "SWITCHING" : "SWITCH WALLET"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -289,7 +303,13 @@ export default function CreateJobForm({
         >
           <div style={{ color: queue?.paused ? "#fca5a5" : "#555", fontSize: 10, lineHeight: 1.8 }}>
             <div>Queue: {queue?.name ?? "not loaded"}</div>
-            <div>{queue?.paused ? "Queue is paused and will reject new jobs." : "Writes are signed by the connected wallet."}</div>
+            <div>
+              {queue?.paused
+                ? "Queue is paused and will reject new jobs."
+                : wallet.localhostMode
+                  ? "On localhost, wallet auto-reconnect is disabled so you can switch accounts more easily."
+                  : "Writes are signed by the connected wallet."}
+            </div>
           </div>
 
           <button

@@ -636,17 +636,44 @@ export default function App() {
           <div style={{ color: wallet.connected ? "#22c55e" : "#555", fontSize: 10 }}>
             WALLET: <span style={{ color: wallet.connected ? "#86efac" : "#777" }}>{wallet.shortAddress ?? "DISCONNECTED"}</span>
           </div>
-          <button
-            onClick={() => void (wallet.connected ? wallet.disconnect() : wallet.connect())}
-            disabled={wallet.connecting || (!wallet.available && !wallet.connected)}
-            style={{
-              ...buttonStyle,
-              color: wallet.connected ? "#86efac" : wallet.available ? "#3b82f6" : "#444",
-              borderColor: wallet.connected ? "#22c55e" : wallet.available ? "#3b82f6" : "#222",
-            }}
-          >
-            {wallet.connected ? "DISCONNECT" : wallet.connecting ? "CONNECTING" : "CONNECT WALLET"}
-          </button>
+          {wallet.connected ? (
+            <>
+              <button
+                onClick={() => void wallet.switchWallet()}
+                disabled={wallet.connecting || !wallet.available}
+                style={{
+                  ...buttonStyle,
+                  color: wallet.available ? "#f59e0b" : "#444",
+                  borderColor: wallet.available ? "#f59e0b" : "#222",
+                }}
+              >
+                {wallet.connecting ? "SWITCHING" : "SWITCH WALLET"}
+              </button>
+              <button
+                onClick={() => void wallet.disconnect()}
+                disabled={wallet.connecting}
+                style={{
+                  ...buttonStyle,
+                  color: "#86efac",
+                  borderColor: "#22c55e",
+                }}
+              >
+                DISCONNECT
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => void wallet.connect()}
+              disabled={wallet.connecting || !wallet.available}
+              style={{
+                ...buttonStyle,
+                color: wallet.available ? "#3b82f6" : "#444",
+                borderColor: wallet.available ? "#3b82f6" : "#222",
+              }}
+            >
+              {wallet.connecting ? "CONNECTING" : "CONNECT WALLET"}
+            </button>
+          )}
           <div style={{ color: "#333", fontSize: 10 }}>
             PROGRAM: <span style={{ color: "#555" }}>{truncate(getProgramId(), 8, 8)}</span>
           </div>
@@ -701,7 +728,11 @@ export default function App() {
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginTop: 12, color: "#444", fontSize: 10, flexWrap: "wrap" }}>
           <span>Auto refresh every {AUTO_REFRESH_MS / 1000}s</span>
-          <span>Reads use RPC. New jobs are created with wallet-signed transactions.</span>
+          <span>
+            {wallet.localhostMode
+              ? "Localhost mode disables silent wallet reconnect so account switching is easier."
+              : "Reads use RPC. New jobs are created with wallet-signed transactions."}
+          </span>
         </div>
 
         {error ? (

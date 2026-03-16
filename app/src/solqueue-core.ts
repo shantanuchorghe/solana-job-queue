@@ -1,4 +1,5 @@
 import { BN } from "@coral-xyz/anchor";
+import { Buffer } from "buffer";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
 export const PROGRAM_ID = new PublicKey("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
@@ -50,7 +51,7 @@ export function serializeJobPayload(payload: unknown): Uint8Array {
     throw new Error("Payload must be valid JSON.");
   }
 
-  return new TextEncoder().encode(encoded);
+  return Buffer.from(encoded, "utf8");
 }
 
 export function payloadByteLength(payload: unknown): number {
@@ -112,7 +113,7 @@ export async function enqueueJobWithProgram({
   const executeAfter = buildExecuteAfter(delay);
 
   const signature = await program.methods
-    .enqueueJob(Array.from(payloadBytes), normalizedJobType, priority, executeAfter)
+    .enqueueJob(payloadBytes, normalizedJobType, priority, executeAfter)
     .accounts({
       queue: queuePda,
       job: jobPda,

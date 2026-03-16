@@ -19,12 +19,14 @@ export interface SolanaWalletState {
   available: boolean;
   connected: boolean;
   connecting: boolean;
+  localhostMode: boolean;
   publicKey: PublicKey | null;
   address: string | null;
   shortAddress: string | null;
   provider: BrowserWalletAdapter | null;
   error: string | null;
   connect(): Promise<void>;
+  switchWallet(): Promise<void>;
   disconnect(): Promise<void>;
 }
 
@@ -50,16 +52,26 @@ function shortenAddress(value: string | null): string | null {
   return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
+function isLocalhostSession(): boolean {
+  const hostname = window.location.hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export function useSolanaWallet(): SolanaWalletState {
   const [provider, setProvider] = useState<BrowserWalletAdapter | null>(null);
   const [publicKey, setPublicKey] = useState<PublicKey | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const localhostMode = isLocalhostSession();
 
   useEffect(() => {
     const nextProvider = resolveBrowserWallet();
     setProvider(nextProvider);
-    setPublicKey(nextProvider?.publicKey ?? null);
+    setPublicKey(localhostMode ? null : nextProvider?.publicKey ?? null);
 
     if (!nextProvider) {
       setError("No Solana wallet detected in this browser.");
@@ -85,15 +97,17 @@ export function useSolanaWallet(): SolanaWalletState {
     nextProvider.on?.("accountChanged", syncPublicKey);
     nextProvider.on?.("disconnect", handleDisconnect);
 
-    void nextProvider.connect({ onlyIfTrusted: true }).then((result) => {
-      if (!cancelled) {
-        setPublicKey(result?.publicKey ?? nextProvider.publicKey ?? null);
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        setPublicKey(nextProvider.publicKey ?? null);
-      }
-    });
+    if (!localhostMode) {
+      void nextProvider.connect({ onlyIfTrusted: true }).then((result) => {
+        if (!cancelled) {
+          setPublicKey(result?.publicKey ?? nextProvider.publicKey ?? null);
+        }
+      }).catch(() => {
+        if (!cancelled) {
+          setPublicKey(nextProvider.publicKey ?? null);
+        }
+      });
+    }
 
     return () => {
       cancelled = true;
@@ -101,7 +115,7 @@ export function useSolanaWallet(): SolanaWalletState {
       nextProvider.off?.("accountChanged", syncPublicKey);
       nextProvider.off?.("disconnect", handleDisconnect);
     };
-  }, []);
+  }, [localhostMode]);
 
   const connect = useCallback(async () => {
     const nextProvider = resolveBrowserWallet();
@@ -124,13 +138,42 @@ export function useSolanaWallet(): SolanaWalletState {
     }
   }, []);
 
-  const disconnect = useCallback(async () => {
-    if (!provider) {
+  const switchWallet = useCallback(async () => {
+    const nextProvider = resolveBrowserWallet();
+    setProvider(nextProvider);
+
+    if (!nextProvider) {
+      setError("No Solana wallet detected. Open Brave Wallet or Phantom and try again.");
       return;
     }
 
     try {
-      await provider.disconnect();
+      setConnecting(true);
+      setError(null);
+
+      if (nextProvider.publicKey || nextProvider.isConnected) {
+        await nextProvider.disconnect().catch(() => undefined);
+        setPublicKey(null);
+        await pause(150);
+      }
+
+      const result = await nextProvider.connect();
+      setPublicKey(result?.publicKey ?? nextProvider.publicKey ?? null);
+    } catch (nextError) {
+      setError((nextError as Error).message);
+    } finally {
+      setConnecting(false);
+    }
+  }, []);
+
+  const disconnect = useCallback(async () => {
+    const nextProvider = provider ?? resolveBrowserWallet();
+    if (!nextProvider) {
+      return;
+    }
+
+    try {
+      await nextProvider.disconnect();
       setPublicKey(null);
       setError(null);
     } catch (nextError) {
@@ -144,12 +187,14 @@ export function useSolanaWallet(): SolanaWalletState {
     available: provider != null,
     connected: publicKey != null,
     connecting,
+    localhostMode,
     publicKey,
     address,
     shortAddress: shortenAddress(address),
     provider,
     error,
     connect,
+    switchWallet,
     disconnect,
   };
 }
