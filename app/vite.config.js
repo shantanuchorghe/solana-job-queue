@@ -8,6 +8,9 @@ const repoRoot = path.resolve(appRoot, "..");
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    global: "globalThis",
+  },
   server: {
     fs: {
       allow: [repoRoot],
