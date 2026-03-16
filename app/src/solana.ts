@@ -12,6 +12,7 @@ import {
   PROGRAM_ID,
   deriveJobPda,
   enqueueJobWithProgram,
+  cancelJobWithProgram,
   endpointForCluster,
   payloadByteLength,
 } from "./solqueue-core";
@@ -242,6 +243,34 @@ export async function enqueueJobFromWallet({
     signature: result.signature,
     payloadBytes: result.payloadBytes,
   };
+}
+
+export async function cancelJobFromWallet({
+  cluster,
+  queueAddress,
+  wallet,
+  jobAddress,
+}: {
+  cluster: Cluster;
+  queueAddress: string;
+  wallet: BrowserWalletAdapter | null;
+  jobAddress: string;
+}): Promise<string> {
+  if (!wallet?.publicKey) {
+    throw new Error("Connect your wallet to cancel a job.");
+  }
+
+  const queuePublicKey = new PublicKey(queueAddress);
+  const jobPublicKey = new PublicKey(jobAddress);
+  const { program } = getProgram(cluster, wallet);
+
+  return cancelJobWithProgram({
+    program,
+    authority: wallet.publicKey,
+    queuePda: queuePublicKey,
+    jobPda: jobPublicKey,
+    indexPageSeq: 0,
+  });
 }
 
 export async function fetchQueueSnapshot(cluster: Cluster, queueAddress: string): Promise<QueueSnapshot> {

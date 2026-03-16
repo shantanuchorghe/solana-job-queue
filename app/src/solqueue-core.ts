@@ -44,6 +44,21 @@ export function deriveJobPda(
   );
 }
 
+export function deriveIndexPagePda(
+  programId: PublicKey,
+  queuePubkey: PublicKey,
+  seq: number
+): [PublicKey, number] {
+  const seqBytes = new Uint8Array(8);
+  const view = new DataView(seqBytes.buffer);
+  view.setBigUint64(0, BigInt(seq), true);
+
+  return PublicKey.findProgramAddressSync(
+    [new TextEncoder().encode("index"), queuePubkey.toBytes(), seqBytes],
+    programId
+  );
+}
+
 export function serializeJobPayload(payload: unknown): Uint8Array {
   const encoded = JSON.stringify(payload);
 
@@ -123,4 +138,30 @@ export async function enqueueJobWithProgram({
     .rpc();
 
   return { jobPda, jobId, signature, payloadBytes: payloadBytes.byteLength };
+}
+
+export async function cancelJobWithProgram({
+  program,
+  authority,
+  queuePda,
+  jobPda,
+  indexPageSeq = 0,
+}: {
+  program: any;
+  authority: PublicKey;
+  queuePda: PublicKey;
+  jobPda: PublicKey;
+  indexPageSeq?: number;
+}): Promise<string> {
+  const [sourceIndexPage] = deriveIndexPagePda(program.programId, queuePda, indexPageSeq);
+
+  return program.methods
+    .cancelJob()
+    .accounts({
+      queue: queuePda,
+      job: jobPda,
+      authority,
+      sourceIndexPage,
+    } as any)
+    .rpc();
 }

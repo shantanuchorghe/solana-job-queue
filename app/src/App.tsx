@@ -5,6 +5,7 @@ import {
   fetchQueueSnapshot,
   getProgramId,
   subscribeToQueueEvents,
+  cancelJobFromWallet,
   type Cluster,
   type EnqueueJobResult,
   type JobStatus,
@@ -175,17 +176,21 @@ function JobRow({
   job,
   onClick,
   selected,
+  onCancel,
+  isCancelling,
 }: {
   job: JobView;
   onClick: () => void;
   selected: boolean;
+  onCancel?: (job: JobView) => void;
+  isCancelling?: boolean;
 }) {
   return (
     <div
       onClick={onClick}
       style={{
         display: "grid",
-        gridTemplateColumns: "60px 1fr 110px 80px 90px 70px",
+        gridTemplateColumns: "60px 1fr 110px 80px 90px 70px 60px",
         gap: 16,
         padding: "10px 16px",
         borderBottom: "1px solid #1a1a1a",
@@ -228,6 +233,29 @@ function JobRow({
       </span>
       <span style={{ color: "#444", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, textAlign: "right" }}>
         {formatAgo(job.createdAt)}
+      </span>
+      <span style={{ textAlign: "right" }}>
+        {(job.status === "pending" || job.status === "processing") ? (
+          <button
+            onClick={(e: any) => {
+              e.stopPropagation();
+              onCancel?.(job);
+            }}
+            disabled={isCancelling}
+            style={{
+              background: "transparent",
+              border: "1px solid #333",
+              color: isCancelling ? "#666" : "#ef4444",
+              cursor: isCancelling ? "default" : "pointer",
+              padding: "4px 8px",
+              fontFamily: "'IBM Plex Mono', monospace",
+              fontSize: 9,
+              letterSpacing: 1,
+            }}
+          >
+            {isCancelling ? <span className="spinner" /> : "CANCEL"}
+          </button>
+        ) : null}
       </span>
     </div>
   );
@@ -451,6 +479,7 @@ export default function App() {
   const [selectedJobKey, setSelectedJobKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cancellingJobIds, setCancellingJobIds] = useState<Set<string>>(new Set());
   const wallet = useSolanaWallet();
 
   const refreshQueue = useCallback(
@@ -575,6 +604,33 @@ export default function App() {
       await refreshQueue(true);
     },
     [refreshQueue, wallet.shortAddress]
+  );
+
+  const handleCancelJob = useCallback(
+    async (job: Pick<JobView, "publicKey" | "jobId">) => {
+      if (!wallet.publicKey) {
+        return alert("Wallet not connected");
+      }
+      setCancellingJobIds((prev) => new Set(prev).add(job.publicKey));
+      try {
+        await cancelJobFromWallet({
+          cluster,
+          queueAddress: activeQueue,
+          wallet: wallet.provider,
+          jobAddress: job.publicKey,
+        });
+        await refreshQueue(true);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCancellingJobIds((prev) => {
+          const next = new Set(prev);
+          next.delete(job.publicKey);
+          return next;
+        });
+      }
+    },
+    [cluster, activeQueue, wallet, refreshQueue]
   );
 
   return (
@@ -880,15 +936,15 @@ export default function App() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "60px 1fr 110px 80px 90px 70px",
+                    gridTemplateColumns: "60px 1fr 110px 80px 90px 70px 60px",
                     gap: 16,
                     padding: "8px 16px",
                     borderBottom: "1px solid #1a1a1a",
                     background: "#080808",
                   }}
                 >
-                  {["ID", "JOB TYPE", "STATUS", "PRIORITY", "RETRIES", "AGE"].map((heading) => (
-                    <span key={heading} style={{ color: "#333", fontSize: 9, letterSpacing: 2 }}>
+                  {["ID", "JOB TYPE", "STATUS", "PRIORITY", "RETRIES", "AGE", ""].map((heading, idx) => (
+                    <span key={idx} style={{ color: "#333", fontSize: 9, letterSpacing: 2 }}>
                       {heading}
                     </span>
                   ))}
@@ -905,6 +961,8 @@ export default function App() {
                       job={job}
                       onClick={() => setSelectedJobKey((current) => (current === job.publicKey ? null : job.publicKey))}
                       selected={selectedJobKey === job.publicKey}
+                      onCancel={handleCancelJob}
+                      isCancelling={cancellingJobIds.has(job.publicKey)}
                     />
                   ))
                 )}
