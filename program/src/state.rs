@@ -307,3 +307,200 @@ impl JobIndex {
         Ok(())
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ZK Compression Integration
+//
+// ┌─── Web2 analogy ─────────────────────────────────────────────────────────┐
+// │ Traditional DB row  →  stored in mutable on-chain account (rent-exempt)  │
+// │ Replicated DB log   →  stored in Solana ledger, fingerprint on-chain     │
+// └──────────────────────────────────────────────────────────────────────────┘
+//
+// What ZK Compression changes:
+//   Standard Anchor #[account]:
+//     - account data lives on-chain (each Job ≈ 900 bytes rent ≈ 0.007 SOL)
+//     - trivially readable via getAccountInfo
+//
+//   Compressed account (light-sdk):
+//     - account data is stored in the Solana LEDGER (not allocated on-chain)
+//     - only a 32-byte Poseidon/Sha256 Merkle hash of all compressed accounts
+//       is kept in an on-chain State Merkle Tree
+//     - each Job ≈ 0 bytes on-chain rent → ~300× cheaper per job
+//     - to read/write: supply a validity proof (ZK-SNARK) that the hash of
+//       your data exists in the Merkle root — verified by the Light System Program
+//
+// Architecture:
+//
+//   ┌──── On-chain (rent-exempt) ─────────────────────────────────────────┐
+//   │  Queue PDA          — metadata, job count                           │
+//   │  QueueHead PDA      — linked-list pointers                          │
+//   │  JobIndex PDAs      — arrays of job_ids (each ≈ 2 KB)              │
+//   │  State Merkle Tree  — Merkle root of all compressed job hashes      │
+//   └─────────────────────────────────────────────────────────────────────┘
+//
+//   ┌──── Ledger (free, permanent) ───────────────────────────────────────┐
+//   │  JobAccount data    — full serialized struct in ledger history       │
+//   │                       retrieved via indexer RPC, not getAccountInfo  │
+//   └─────────────────────────────────────────────────────────────────────┘
+//
+// On-chain flow:
+//   enqueue_job → LightSystemProgramCpi::new_cpi()
+//                   .with_new_addresses(&[address_params])   // unique deterministic address
+//                   .with_light_account(&mut compressed_job)? // sets hash in Merkle tree
+//                   .invoke(cpi_accounts)?
+//
+//   claim_job   → LightSystemProgramCpi::new_cpi()
+//                   .with_light_account(&mut compressed_job)? // reads old hash, writes new
+//                   .invoke(cpi_accounts)?
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "zk-compression")]
+use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "zk-compression")]
+use light_sdk::LightDiscriminator;
+
+// ── Compressed job status as a primitive ─────────────────────────────────────
+// We can't use the existing JobStatus enum directly inside a LightAccount data
+// struct because Poseidon hashing requires all fields to map to field elements.
+// We use a u8 instead — the same status values, different representation.
+//
+//   0 → Pending
+//   1 → Processing
+//   2 → Completed
+//   3 → Failed
+//   4 → Cancelled
+#[cfg(feature = "zk-compression")]
+pub const CJOB_PENDING:    u8 = 0;
+#[cfg(feature = "zk-compression")]
+pub const CJOB_PROCESSING: u8 = 1;
+#[cfg(feature = "zk-compression")]
+pub const CJOB_COMPLETED:  u8 = 2;
+#[cfg(feature = "zk-compression")]
+pub const CJOB_FAILED:     u8 = 3;
+#[cfg(feature = "zk-compression")]
+pub const CJOB_CANCELLED:  u8 = 4;
+
+// ── JobAccount — the compressed account data struct ───────────────────────────
+//
+// This is NOT an Anchor #[account]. It has NO on-chain allocation.
+// Its bytes are hashed (Sha256) and stored as a leaf in the State Merkle Tree.
+//
+// Rules for a valid LightAccount data struct (checked at compile time by
+// LightDiscriminator):
+//   - Clone + Debug + Default + BorshSerialize + BorshDeserialize
+//   - All fields must be borsh-serializable (no Anchor-specific types like
+//     Account<'info, T>, no raw pointers, no lifetimes)
+//   - Pubkeys must use anchor_lang::prelude::Pubkey (which re-exports
+//     solana_program::pubkey::Pubkey — the same type, just accessed differently)
+//
+// The LightDiscriminator derive macro generates a unique 8-byte discriminator
+// for this type, preventing cross-type deserialization attacks.
+//
+// The LightHasher derive macro (Sha256 variant) generates the DataHasher impl
+// that hashes the borsh-serialized struct body using Sha256.
+// Sha256 is chosen over Poseidon here because:
+//   - it is cheaper in compute units for multi-field structs
+//   - we don't need ZK circuit compatibility (we're using compression for rent
+//     savings, not for SNARK proofs over job data)
+#[cfg(feature = "zk-compression")]
+#[derive(
+    Clone, Debug, Default,
+    LightDiscriminator,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+pub struct JobAccount {
+    /// The queue this job belongs to.
+    /// Stored as bytes to keep BorshSerialize impls simple.
+    pub queue: [u8; 32],
+
+    /// Monotonic job ID within the queue (also part of the compressed address).
+    pub job_id: u64,
+
+    /// Job type string, max 32 bytes, null-padded.
+    pub job_type: [u8; 32],
+
+    /// Serialized payload, max 512 bytes, length-prefixed via BorshSerialize.
+    /// Only the first `payload_len` bytes are meaningful.
+    pub payload_len: u16,
+    pub payload: [u8; 512],
+
+    /// Lifecycle state — use CJOB_* constants.
+    pub status: u8,
+
+    /// 0=low, 1=normal, 2=high
+    pub priority: u8,
+
+    /// Unix timestamp when the job was enqueued.
+    pub created_at: i64,
+
+    /// Earliest unix timestamp at which a worker may claim this job.
+    pub execute_after: i64,
+
+    /// Number of processing attempts so far.
+    pub attempts: u8,
+
+    /// Maximum attempts before permanent failure.
+    pub max_retries: u8,
+
+    /// The worker that currently holds / last processed this job.
+    /// Zero pubkey = no worker.
+    pub worker: [u8; 32],
+
+    /// Unix timestamp when processing started for the last attempt.
+    pub started_at: i64,
+
+    /// Unix timestamp when the job reached a terminal state.
+    pub completed_at: i64,
+}
+
+#[cfg(feature = "zk-compression")]
+impl JobAccount {
+    /// Convert from the queue's Pubkey to the [u8;32] representation.
+    pub fn set_queue(&mut self, q: &Pubkey) {
+        self.queue = q.to_bytes();
+    }
+
+    /// Extract the queue as a Pubkey.
+    pub fn queue_pubkey(&self) -> Pubkey {
+        Pubkey::new_from_array(self.queue)
+    }
+
+    /// Truncate a string into the fixed-width job_type field.
+    pub fn set_job_type(&mut self, s: &str) {
+        let bytes = s.as_bytes();
+        let len = bytes.len().min(32);
+        self.job_type[..len].copy_from_slice(&bytes[..len]);
+    }
+
+    /// Write payload bytes into the fixed-width payload field.
+    pub fn set_payload(&mut self, data: &[u8]) {
+        let len = data.len().min(512);
+        self.payload[..len].copy_from_slice(&data[..len]);
+        self.payload_len = len as u16;
+    }
+}
+
+// ── CompressedJobMeta — instruction-data type ─────────────────────────────────
+//
+// Passed from the client to on-chain instructions that UPDATE an existing
+// compressed JobAccount (claim_job, complete_job, fail_job, cancel_job).
+//
+// Light Protocol's instruction model:
+//   - The client fetches the current CompressedAccountMeta from the indexer
+//     (not from getAccountInfo — the account isn't on-chain)
+//   - The client builds a ValidityProof proving the hash exists in the Merkle root
+//   - Both are packed into instruction data and passed to the handler
+//   - The handler calls LightSystemProgramCpi to verify the proof and update the leaf
+//
+// For CREATE (enqueue_job), instead of CompressedAccountMeta the client
+// supplies PackedAddressTreeInfo + PackedStateTreeInfo — also from the indexer.
+#[cfg(feature = "zk-compression")]
+pub use light_sdk::instruction::account_meta::CompressedAccountMeta;
+#[cfg(feature = "zk-compression")]
+pub use light_sdk::instruction::{
+    PackedAddressTreeInfo,
+    PackedStateTreeInfo,
+    ValidityProof,
+};

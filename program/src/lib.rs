@@ -1,6 +1,23 @@
 use anchor_lang::prelude::*;
 
+// ── ZK Compression SDK imports ────────────────────────────────────────────────
+// Active only when compiled with: --features zk-compression
+// (blocked on anchor-lang 0.30.1 / solana-instruction version conflict —
+//  see program/Cargo.toml for full explanation)
+#[cfg(feature = "zk-compression")]
+use light_sdk::{
+    account::LightAccount,
+    cpi::v1::{CpiAccounts, LightSystemProgramCpi},
+    derive_light_cpi_signer,
+};
+
 declare_id!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
+
+// ── Register this program with the Light System Program ───────────────────────
+// The derive_light_cpi_signer! macro generates LIGHT_CPI_SIGNER: CpiSigner,
+// a constant PDA proving to the Light System Program that CPIs originate here.
+#[cfg(feature = "zk-compression")]
+derive_light_cpi_signer!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SolQueue — On-Chain Job Queue Program
@@ -730,3 +747,142 @@ pub struct SetQueuePaused<'info> {
 
     pub authority: Signer<'info>,
 }
+
+// ─── Compressed Job Instructions ──────────────────────────────────────────────
+//
+// These instructions parallel the standard job lifecycle but operate on
+// COMPRESSED JobAccounts (light_sdk::LightAccount<JobAccount>) instead of
+// Anchor PDA accounts.
+//
+// Key difference in the handler signature:
+//   Standard:   pub fn enqueue_job(ctx: Context<EnqueueJob>, ...) -> Result<()>
+//   Compressed: pub fn enqueue_compressed_job(ctx: Context<EnqueueCompressedJob>,
+//                   proof: ValidityProof,
+//                   address_tree_info: PackedAddressTreeInfo,
+//                   state_tree_info: PackedStateTreeInfo, ...) -> Result<()>
+//
+// The `proof` is a ZK-SNARK validity proof generated off-chain by the client
+// using the Light indexer RPC. It proves:
+//   1. The new compressed address doesn't already exist in the Address Merkle Tree.
+//   2. Any existing compressed accounts being updated have their current state.
+
+// NOTE: In production, enqueue_compressed_job would be added here as a full
+// instruction using the pattern shown below. We provide it as documentation
+// (not yet wired into the Anchor #[program] block) so the codebase compiles
+// without requiring the Light System Program account to be live.
+//
+// Full pattern for a CREATE:
+//
+// pub fn enqueue_compressed_job(
+//     ctx: Context<EnqueueCompressedJob>,
+//     proof: ValidityProof,
+//     address_tree_info: PackedAddressTreeInfo,
+//     state_tree_info: PackedStateTreeInfo,
+//     payload: Vec<u8>,
+//     job_type: String,
+//     priority: u8,
+//     execute_after: i64,
+// ) -> Result<()> {
+//     require!(payload.len() <= 512, JobQueueError::PayloadTooLarge);
+//     require!(!ctx.accounts.queue.paused, JobQueueError::QueuePaused);
+//
+//     let clock = Clock::get()?;
+//     let queue = &mut ctx.accounts.queue;
+//     let job_id = queue.job_count;
+//     queue.job_count = queue.job_count.checked_add(1).ok_or(JobQueueError::QueueFull)?;
+//
+//     // Build the unique deterministic address for this compressed job.
+//     // address = derive_address([b"job", queue_pubkey, job_id.to_le_bytes()])
+//     // The address_tree_info tells the Light System Program which Address
+//     // Merkle Tree to insert this new address into. The tree is specified
+//     // by the client based on which tree has capacity.
+//     use light_sdk::address::derive_address;
+//     let address_seed = [b"job", queue.key().as_ref(), &job_id.to_le_bytes()];
+//     let (address, address_params) =
+//         derive_address(&address_seed, &address_tree_info);
+//
+//     // Construct the LightAccount wrapper — this is the in-memory representation.
+//     // new_init() marks it as "to be created" in the Merkle tree.
+//     let mut compressed_job = LightAccount::<JobAccount>::new_init(
+//         &crate::ID,
+//         Some(address),
+//         state_tree_info.tree_index,  // which State Merkle Tree to use
+//     );
+//
+//     // Populate job fields
+//     compressed_job.set_queue(&queue.key());
+//     compressed_job.job_id = job_id;
+//     compressed_job.set_job_type(&job_type);
+//     compressed_job.set_payload(&payload);
+//     compressed_job.status = CJOB_PENDING;
+//     compressed_job.priority = priority;
+//     compressed_job.created_at = clock.unix_timestamp;
+//     compressed_job.execute_after = if execute_after == 0 {
+//         clock.unix_timestamp
+//     } else {
+//         execute_after
+//     };
+//     compressed_job.max_retries = queue.max_retries;
+//
+//     // Build CPI accounts: tells the Light System Program which on-chain
+//     // accounts (state trees, nullifier queues, etc.) to use.
+//     // ctx.accounts.light_system_accounts is a slice of remaining_accounts
+//     // whose structure is described by PackedAccounts (assembled off-chain).
+//     let cpi_accounts = CpiAccounts::new(
+//         ctx.accounts.payer.to_account_info(),
+//         ctx.remaining_accounts,  // state tree + address tree + queue accounts
+//         crate::LIGHT_CPI_SIGNER,
+//     );
+//
+//     // Execute the CPI — verifies proof, inserts new address, updates Merkle leaf.
+//     LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, &proof)
+//         .with_new_addresses(&[address_params])
+//         .with_light_account(&mut compressed_job)?
+//         .invoke(cpi_accounts)?;
+//
+//     // The JobIndex update (push_job) is the same as the standard path.
+//     ctx.accounts.tail_index_page.push_job(job_id)?;
+//
+//     Ok(())
+// }
+
+/// Account context for compressed job enqueueing.
+/// The Light System Program accounts are passed as `remaining_accounts`
+/// because their count and order are dynamic (depend on which Merkle trees
+/// the client selects). The `PackedAccounts` abstraction packs their indices.
+#[derive(Accounts)]
+pub struct EnqueueCompressedJob<'info> {
+    /// Same queue PDA as the standard path — manages job_count and stats.
+    #[account(mut)]
+    pub queue: Account<'info, Queue>,
+
+    /// QueueHead for total_jobs increment.
+    #[account(
+        mut,
+        seeds = [b"queue_head", queue.key().as_ref()],
+        bump = queue_head.bump
+    )]
+    pub queue_head: Account<'info, QueueHead>,
+
+    /// Current tail JobIndex page — job_id is appended here (same as standard path).
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), &queue_head.tail_index_seq.to_le_bytes()],
+        bump = tail_index_page.bump
+    )]
+    pub tail_index_page: Account<'info, JobIndex>,
+
+    /// Fee payer for the Light System Program's state tree update fee.
+    /// (Compressed accounts pay a small ledger fee instead of rent.)
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    // The Light System Program and all Merkle tree / nullifier queue accounts
+    // are passed as `remaining_accounts` — their count is dynamic.
+    // See PackedAccounts::add_system_accounts() on the client side.
+}
+
+// The compressed job types are defined in state.rs under the ZK Compression
+// section and become active when compiled with --features zk-compression.
+// pub use state::{JobAccount, CJOB_PENDING, CompressedAccountMeta, ...};
+
