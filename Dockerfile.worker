@@ -17,4 +17,4 @@ COPY tsconfig.json ./
 # or set via WALLET_JSON env var at runtime.
 
 # Start the worker
-CMD ["npx", "ts-node", "--esm", "client/worker.ts"]
+CMD ["npx", "ts-node", "--transpile-only", "client/worker.ts"]
