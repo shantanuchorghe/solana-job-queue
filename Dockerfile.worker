@@ -5,16 +5,17 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install dependencies including dev (required for ts-node)
+# Install all dependencies
 RUN npm ci
 
-# Copy worker source and shared code
+# Copy source
 COPY client/ ./client/
 COPY shared/ ./shared/
+COPY target/ ./target/
 COPY tsconfig.json ./
 
-# The worker keypair is mounted as a secret at /run/secrets/worker-keypair.json
-# or set via WALLET_JSON env var at runtime.
+# Compile TypeScript → JavaScript using esbuild (fast, no type checking)
+RUN npx esbuild client/worker.ts --bundle --platform=node --target=node20 --outfile=dist/worker.cjs --external:@coral-xyz/anchor --external:@solana/web3.js --external:@lightprotocol/stateless.js
 
-# Start the worker
-CMD ["npx", "ts-node", "--transpile-only", "client/worker.ts"]
+# Start the compiled worker
+CMD ["node", "dist/worker.cjs"]

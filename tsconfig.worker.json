@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "declaration": false
+  },
+  "include": ["client/**/*", "shared/**/*"],
+  "exclude": ["app", "tests", "trident-tests", "node_modules"]
+}

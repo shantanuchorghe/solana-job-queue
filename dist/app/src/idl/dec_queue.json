@@ -1,0 +1,1475 @@
+{
+    "address": "GQdb3Gabjd28jXVnNZguU9cTwYsxw7Emrn2voQoyJA4a",
+    "metadata": {
+        "name": "dec_queue",
+        "version": "0.1.0",
+        "spec": "0.1.0",
+        "description": "On-Chain Job Queue — rebuild of Bull/Redis/SQS as a Solana Anchor program"
+    },
+    "instructions": [
+        {
+            "name": "advance_head",
+            "discriminator": [
+                100,
+                7,
+                98,
+                197,
+                138,
+                87,
+                255,
+                23
+            ],
+            "accounts": [
+                {
+                    "name": "queue_head",
+                    "docs": [
+                        "The linked-list head â€” head_index_seq will be incremented."
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    113,
+                                    117,
+                                    101,
+                                    117,
+                                    101,
+                                    95,
+                                    104,
+                                    101,
+                                    97,
+                                    100
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "head_page.queue",
+                                "account": "JobIndex"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "head_page",
+                    "docs": [
+                        "The current (empty) head page."
+                    ],
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    105,
+                                    110,
+                                    100,
+                                    101,
+                                    120
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "head_page.queue",
+                                "account": "JobIndex"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue_head.head_index_seq",
+                                "account": "QueueHead"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "args": []
+        },
+        {
+            "name": "cancel_job",
+            "discriminator": [
+                126,
+                241,
+                155,
+                241,
+                50,
+                236,
+                83,
+                118
+            ],
+            "accounts": [
+                {
+                    "name": "queue",
+                    "writable": true,
+                    "relations": [
+                        "job"
+                    ]
+                },
+                {
+                    "name": "job",
+                    "writable": true
+                },
+                {
+                    "name": "authority",
+                    "signer": true
+                },
+                {
+                    "name": "source_index_page",
+                    "docs": [
+                        "The index page currently holding this job_id."
+                    ],
+                    "writable": true
+                }
+            ],
+            "args": []
+        },
+        {
+            "name": "claim_job",
+            "discriminator": [
+                9,
+                160,
+                5,
+                231,
+                116,
+                123,
+                198,
+                14
+            ],
+            "accounts": [
+                {
+                    "name": "job",
+                    "writable": true
+                },
+                {
+                    "name": "worker",
+                    "signer": true
+                },
+                {
+                    "name": "source_index_page",
+                    "docs": [
+                        "The index page that currently contains this job_id.",
+                        "Verified by seed â€” callers compute [b\"index\", job.queue, page_seq.to_le_bytes()]."
+                    ],
+                    "writable": true
+                }
+            ],
+            "args": []
+        },
+        {
+            "name": "complete_job",
+            "discriminator": [
+                221,
+                216,
+                225,
+                72,
+                101,
+                250,
+                3,
+                11
+            ],
+            "accounts": [
+                {
+                    "name": "queue",
+                    "writable": true,
+                    "relations": [
+                        "job"
+                    ]
+                },
+                {
+                    "name": "job",
+                    "writable": true
+                },
+                {
+                    "name": "worker",
+                    "signer": true
+                }
+            ],
+            "args": [
+                {
+                    "name": "result",
+                    "type": {
+                        "option": "string"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "enqueue_job",
+            "discriminator": [
+                15,
+                126,
+                169,
+                237,
+                239,
+                18,
+                69,
+                7
+            ],
+            "accounts": [
+                {
+                    "name": "queue",
+                    "writable": true
+                },
+                {
+                    "name": "job",
+                    "docs": [
+                        "Job PDA keyed by (queue, job_count) â€” job_count is captured before increment."
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    106,
+                                    111,
+                                    98
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue.job_count",
+                                "account": "Queue"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "queue_head",
+                    "docs": [
+                        "QueueHead â€” needed to increment total_jobs."
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    113,
+                                    117,
+                                    101,
+                                    117,
+                                    101,
+                                    95,
+                                    104,
+                                    101,
+                                    97,
+                                    100
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "tail_index_page",
+                    "docs": [
+                        "The current tail index page â€” job_id is appended here.",
+                        "The caller derives: seq = queue_head.tail_index_seq"
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    105,
+                                    110,
+                                    100,
+                                    101,
+                                    120
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue_head.tail_index_seq",
+                                "account": "QueueHead"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "payer",
+                    "writable": true,
+                    "signer": true
+                },
+                {
+                    "name": "system_program",
+                    "address": "11111111111111111111111111111111"
+                }
+            ],
+            "args": [
+                {
+                    "name": "payload",
+                    "type": "bytes"
+                },
+                {
+                    "name": "job_type",
+                    "type": "string"
+                },
+                {
+                    "name": "priority",
+                    "type": "u8"
+                },
+                {
+                    "name": "execute_after",
+                    "type": "i64"
+                }
+            ]
+        },
+        {
+            "name": "fail_job",
+            "discriminator": [
+                211,
+                222,
+                65,
+                39,
+                115,
+                107,
+                125,
+                43
+            ],
+            "accounts": [
+                {
+                    "name": "queue",
+                    "writable": true,
+                    "relations": [
+                        "job"
+                    ]
+                },
+                {
+                    "name": "job",
+                    "writable": true
+                },
+                {
+                    "name": "worker",
+                    "signer": true
+                },
+                {
+                    "name": "retry_index_page",
+                    "docs": [
+                        "The index page to push the retried job_id into (tail page of a retry queue,",
+                        "or any page with remaining capacity that the caller designates)."
+                    ],
+                    "writable": true
+                }
+            ],
+            "args": [
+                {
+                    "name": "error_message",
+                    "type": "string"
+                },
+                {
+                    "name": "retry_after_secs",
+                    "type": "i64"
+                }
+            ]
+        },
+        {
+            "name": "grow_index",
+            "discriminator": [
+                222,
+                32,
+                78,
+                153,
+                148,
+                86,
+                108,
+                168
+            ],
+            "accounts": [
+                {
+                    "name": "queue"
+                },
+                {
+                    "name": "queue_head",
+                    "docs": [
+                        "The linked-list head PDA â€” tail_index_seq will be incremented here."
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    113,
+                                    117,
+                                    101,
+                                    117,
+                                    101,
+                                    95,
+                                    104,
+                                    101,
+                                    97,
+                                    100
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "current_tail_page",
+                    "docs": [
+                        "The current (full) tail page.",
+                        "Seeds use queue_head.tail_index_seq before increment."
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    105,
+                                    110,
+                                    100,
+                                    101,
+                                    120
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue_head.tail_index_seq",
+                                "account": "QueueHead"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "new_tail_page",
+                    "docs": [
+                        "The new tail page. Seeds use the new_seq instruction argument."
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    105,
+                                    110,
+                                    100,
+                                    101,
+                                    120
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            },
+                            {
+                                "kind": "arg",
+                                "path": "new_seq"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "authority",
+                    "writable": true,
+                    "signer": true
+                },
+                {
+                    "name": "system_program",
+                    "address": "11111111111111111111111111111111"
+                }
+            ],
+            "args": [
+                {
+                    "name": "new_seq",
+                    "type": "u64"
+                }
+            ]
+        },
+        {
+            "name": "initialize_queue",
+            "discriminator": [
+                174,
+                102,
+                132,
+                232,
+                90,
+                202,
+                27,
+                20
+            ],
+            "accounts": [
+                {
+                    "name": "queue",
+                    "docs": [
+                        "The core queue metadata account.",
+                        "Seeds: [b\"queue\", authority, name]"
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    113,
+                                    117,
+                                    101,
+                                    117,
+                                    101
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "authority"
+                            },
+                            {
+                                "kind": "arg",
+                                "path": "queue_name"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "queue_head",
+                    "docs": [
+                        "Linked-list head: tracks head_seq, tail_seq, total_jobs.",
+                        "Seeds: [b\"queue_head\", queue]"
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    113,
+                                    117,
+                                    101,
+                                    117,
+                                    101,
+                                    95,
+                                    104,
+                                    101,
+                                    97,
+                                    100
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "first_index_page",
+                    "docs": [
+                        "The very first index page (seq = 0).",
+                        "Seeds: [b\"index\", queue, 0u64.to_le_bytes()]"
+                    ],
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    105,
+                                    110,
+                                    100,
+                                    101,
+                                    120
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "queue"
+                            },
+                            {
+                                "kind": "const",
+                                "value": [
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ]
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "authority",
+                    "writable": true,
+                    "signer": true
+                },
+                {
+                    "name": "system_program",
+                    "address": "11111111111111111111111111111111"
+                }
+            ],
+            "args": [
+                {
+                    "name": "queue_name",
+                    "type": "string"
+                },
+                {
+                    "name": "max_retries",
+                    "type": "u8"
+                }
+            ]
+        },
+        {
+            "name": "set_queue_paused",
+            "discriminator": [
+                75,
+                37,
+                8,
+                150,
+                81,
+                113,
+                10,
+                209
+            ],
+            "accounts": [
+                {
+                    "name": "queue",
+                    "writable": true
+                },
+                {
+                    "name": "authority",
+                    "signer": true
+                }
+            ],
+            "args": [
+                {
+                    "name": "paused",
+                    "type": "bool"
+                }
+            ]
+        }
+    ],
+    "accounts": [
+        {
+            "name": "Job",
+            "discriminator": [
+                75,
+                124,
+                80,
+                203,
+                161,
+                180,
+                202,
+                80
+            ]
+        },
+        {
+            "name": "JobIndex",
+            "discriminator": [
+                100,
+                14,
+                60,
+                78,
+                100,
+                211,
+                119,
+                193
+            ]
+        },
+        {
+            "name": "Queue",
+            "discriminator": [
+                204,
+                167,
+                6,
+                247,
+                20,
+                33,
+                2,
+                188
+            ]
+        },
+        {
+            "name": "QueueHead",
+            "discriminator": [
+                252,
+                245,
+                9,
+                149,
+                18,
+                35,
+                210,
+                142
+            ]
+        }
+    ],
+    "events": [
+        {
+            "name": "JobCancelled",
+            "discriminator": [
+                203,
+                84,
+                143,
+                130,
+                48,
+                134,
+                74,
+                191
+            ]
+        },
+        {
+            "name": "JobClaimed",
+            "discriminator": [
+                176,
+                110,
+                104,
+                38,
+                27,
+                220,
+                61,
+                191
+            ]
+        },
+        {
+            "name": "JobCompleted",
+            "discriminator": [
+                176,
+                207,
+                246,
+                115,
+                95,
+                179,
+                9,
+                132
+            ]
+        },
+        {
+            "name": "JobEnqueued",
+            "discriminator": [
+                253,
+                145,
+                52,
+                57,
+                172,
+                39,
+                112,
+                100
+            ]
+        },
+        {
+            "name": "JobFailed",
+            "discriminator": [
+                239,
+                142,
+                192,
+                215,
+                175,
+                72,
+                19,
+                44
+            ]
+        },
+        {
+            "name": "JobRetrying",
+            "discriminator": [
+                243,
+                247,
+                60,
+                225,
+                130,
+                6,
+                255,
+                250
+            ]
+        },
+        {
+            "name": "QueueCreated",
+            "discriminator": [
+                18,
+                135,
+                244,
+                181,
+                162,
+                83,
+                90,
+                175
+            ]
+        },
+        {
+            "name": "QueuePauseChanged",
+            "discriminator": [
+                119,
+                113,
+                147,
+                17,
+                142,
+                38,
+                83,
+                126
+            ]
+        }
+    ],
+    "errors": [
+        {
+            "code": 6000,
+            "name": "NameTooLong",
+            "msg": "Queue name must be between 1 and 32 characters"
+        },
+        {
+            "code": 6001,
+            "name": "InvalidRetries",
+            "msg": "max_retries cannot exceed 10"
+        },
+        {
+            "code": 6002,
+            "name": "InvalidPriority",
+            "msg": "Priority must be 0 (low), 1 (normal), or 2 (high)"
+        },
+        {
+            "code": 6003,
+            "name": "PayloadTooLarge",
+            "msg": "Payload exceeds 512 byte limit"
+        },
+        {
+            "code": 6004,
+            "name": "ResultTooLarge",
+            "msg": "Result or error message exceeds 128 character limit"
+        },
+        {
+            "code": 6005,
+            "name": "JobNotPending",
+            "msg": "Job must be in Pending status to be claimed"
+        },
+        {
+            "code": 6006,
+            "name": "JobNotProcessing",
+            "msg": "Job must be in Processing status to complete or fail"
+        },
+        {
+            "code": 6007,
+            "name": "JobNotReady",
+            "msg": "Job execute_after time has not been reached yet"
+        },
+        {
+            "code": 6008,
+            "name": "Unauthorized",
+            "msg": "Signer is not authorized for this operation"
+        },
+        {
+            "code": 6009,
+            "name": "CannotCancel",
+            "msg": "Job is in a terminal state and cannot be cancelled"
+        },
+        {
+            "code": 6010,
+            "name": "QueuePaused",
+            "msg": "Queue is paused — no new jobs can be enqueued"
+        },
+        {
+            "code": 6011,
+            "name": "QueueFull",
+            "msg": "Queue job_count overflow — this queue has processed u64::MAX jobs"
+        },
+        {
+            "code": 6012,
+            "name": "Overflow",
+            "msg": "Counter overflow"
+        },
+        {
+            "code": 6013,
+            "name": "IndexFull",
+            "msg": "Index is full — maximum number of entries reached"
+        },
+        {
+            "code": 6014,
+            "name": "JobNotInIndex",
+            "msg": "Job ID was not found in the specified index"
+        },
+        {
+            "code": 6015,
+            "name": "IndexNotFull",
+            "msg": "grow_index called but the tail page is not yet full"
+        },
+        {
+            "code": 6016,
+            "name": "HeadPageNotEmpty",
+            "msg": "advance_head called but the head page still contains jobs"
+        },
+        {
+            "code": 6017,
+            "name": "NoSuccessorPage",
+            "msg": "No successor page exists — head and tail are the same page"
+        },
+        {
+            "code": 6018,
+            "name": "QueueMismatch",
+            "msg": "Index page belongs to a different queue than the job"
+        },
+        {
+            "code": 6019,
+            "name": "InvalidCompressedJobData",
+            "msg": "Failed to deserialize compressed job_data bytes"
+        },
+        {
+            "code": 6020,
+            "name": "CompressedCpiFailed",
+            "msg": "Light System Program CPI failed — proof invalid or account mismatch"
+        }
+    ],
+    "types": [
+        {
+            "name": "Job",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "docs": [
+                            "The queue this job belongs to"
+                        ],
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "job_id",
+                        "docs": [
+                            "Monotonic ID within the queue (used as PDA seed)"
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "job_type",
+                        "docs": [
+                            "Job type identifier — workers use this to route to handler functions",
+                            "e.g. \"send-email\", \"resize-image\", \"send-webhook\""
+                        ],
+                        "type": "string"
+                    },
+                    {
+                        "name": "payload",
+                        "docs": [
+                            "Arbitrary serialized payload — typically JSON or borsh bytes",
+                            "Workers deserialize this to get job arguments"
+                        ],
+                        "type": "bytes"
+                    },
+                    {
+                        "name": "status",
+                        "docs": [
+                            "Current lifecycle state"
+                        ],
+                        "type": {
+                            "defined": {
+                                "name": "JobStatus"
+                            }
+                        }
+                    },
+                    {
+                        "name": "priority",
+                        "docs": [
+                            "0=low, 1=normal, 2=high"
+                        ],
+                        "type": "u8"
+                    },
+                    {
+                        "name": "created_at",
+                        "docs": [
+                            "When this job was enqueued"
+                        ],
+                        "type": "i64"
+                    },
+                    {
+                        "name": "execute_after",
+                        "docs": [
+                            "Earliest time this job can be claimed (enables delayed/scheduled jobs)"
+                        ],
+                        "type": "i64"
+                    },
+                    {
+                        "name": "attempts",
+                        "docs": [
+                            "Number of times this job has been attempted (incremented on claim)"
+                        ],
+                        "type": "u8"
+                    },
+                    {
+                        "name": "max_retries",
+                        "docs": [
+                            "Maximum attempts before permanent failure"
+                        ],
+                        "type": "u8"
+                    },
+                    {
+                        "name": "worker",
+                        "docs": [
+                            "The worker that currently holds / last processed this job"
+                        ],
+                        "type": {
+                            "option": "pubkey"
+                        }
+                    },
+                    {
+                        "name": "started_at",
+                        "docs": [
+                            "When the current/last processing attempt began"
+                        ],
+                        "type": {
+                            "option": "i64"
+                        }
+                    },
+                    {
+                        "name": "completed_at",
+                        "docs": [
+                            "When the job reached a terminal state (Completed/Failed/Cancelled)"
+                        ],
+                        "type": {
+                            "option": "i64"
+                        }
+                    },
+                    {
+                        "name": "result",
+                        "docs": [
+                            "Result data written by the worker on success"
+                        ],
+                        "type": {
+                            "option": "string"
+                        }
+                    },
+                    {
+                        "name": "error_message",
+                        "docs": [
+                            "Error message on failure"
+                        ],
+                        "type": {
+                            "option": "string"
+                        }
+                    },
+                    {
+                        "name": "bump",
+                        "docs": [
+                            "PDA bump seed"
+                        ],
+                        "type": "u8"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobCancelled",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "job_id",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "cancelled_by",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "cancelled_at",
+                        "type": "i64"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobClaimed",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "job_id",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "worker",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "attempt",
+                        "type": "u8"
+                    },
+                    {
+                        "name": "claimed_at",
+                        "type": "i64"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobCompleted",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "job_id",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "worker",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "result",
+                        "type": {
+                            "option": "string"
+                        }
+                    },
+                    {
+                        "name": "completed_at",
+                        "type": "i64"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobEnqueued",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "job_id",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "job_type",
+                        "type": "string"
+                    },
+                    {
+                        "name": "priority",
+                        "type": "u8"
+                    },
+                    {
+                        "name": "execute_after",
+                        "type": "i64"
+                    },
+                    {
+                        "name": "enqueued_at",
+                        "type": "i64"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobFailed",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "job_id",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "attempts",
+                        "type": "u8"
+                    },
+                    {
+                        "name": "error",
+                        "type": "string"
+                    },
+                    {
+                        "name": "failed_at",
+                        "type": "i64"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobIndex",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "docs": [
+                            "The queue this page belongs to (safety back-reference)"
+                        ],
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "seq",
+                        "docs": [
+                            "Sequence number of this page within the linked list.",
+                            "Also encodes into the PDA seed so every page has a unique address."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "next_seq",
+                        "docs": [
+                            "Next page's sequence number (0 means \"no next page yet\").",
+                            "Set when the producer creates a successor page via grow_index."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "job_ids",
+                        "docs": [
+                            "Job IDs stored in this page. Unordered; removal is O(1) swap_remove."
+                        ],
+                        "type": {
+                            "vec": "u64"
+                        }
+                    },
+                    {
+                        "name": "bump",
+                        "docs": [
+                            "PDA bump seed"
+                        ],
+                        "type": "u8"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobRetrying",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "job_id",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "attempt",
+                        "type": "u8"
+                    },
+                    {
+                        "name": "retry_at",
+                        "type": "i64"
+                    },
+                    {
+                        "name": "error",
+                        "type": "string"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "JobStatus",
+            "type": {
+                "kind": "enum",
+                "variants": [
+                    {
+                        "name": "Pending"
+                    },
+                    {
+                        "name": "Processing"
+                    },
+                    {
+                        "name": "Completed"
+                    },
+                    {
+                        "name": "Failed"
+                    },
+                    {
+                        "name": "Cancelled"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "Queue",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "authority",
+                        "docs": [
+                            "The wallet/program that created and controls this queue"
+                        ],
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "name",
+                        "docs": [
+                            "Human-readable queue name (e.g. \"email-notifications\")"
+                        ],
+                        "type": "string"
+                    },
+                    {
+                        "name": "job_count",
+                        "docs": [
+                            "Monotonically increasing counter — used as job PDA seed.",
+                            "Never decrements, so job PDAs are always derivable from (queue, id)."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "pending_count",
+                        "docs": [
+                            "Live count of Pending + Processing jobs"
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "processed_count",
+                        "docs": [
+                            "Total successfully completed jobs"
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "failed_count",
+                        "docs": [
+                            "Total permanently failed jobs (dead letter count)"
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "max_retries",
+                        "docs": [
+                            "Default max retry attempts for jobs created in this queue"
+                        ],
+                        "type": "u8"
+                    },
+                    {
+                        "name": "paused",
+                        "docs": [
+                            "When true, new jobs cannot be enqueued"
+                        ],
+                        "type": "bool"
+                    },
+                    {
+                        "name": "created_at",
+                        "docs": [
+                            "Unix timestamp of queue creation"
+                        ],
+                        "type": "i64"
+                    },
+                    {
+                        "name": "bump",
+                        "docs": [
+                            "PDA bump seed"
+                        ],
+                        "type": "u8"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "QueueCreated",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "authority",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "name": "timestamp",
+                        "type": "i64"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "QueueHead",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "authority",
+                        "docs": [
+                            "The queue this head belongs to (back-reference for safety checks)"
+                        ],
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "head_index_seq",
+                        "docs": [
+                            "Sequence number of the oldest (head) JobIndex page.",
+                            "Workers always read this page first."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "tail_index_seq",
+                        "docs": [
+                            "Sequence number of the newest (tail) JobIndex page.",
+                            "Producers append to this page; when it fills, a new page is allocated."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "total_jobs",
+                        "docs": [
+                            "Total number of job IDs tracked across ALL pages in this linked list.",
+                            "Does not decrement when jobs are removed; use it for analytics only."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "bump",
+                        "docs": [
+                            "PDA bump seed"
+                        ],
+                        "type": "u8"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "QueuePauseChanged",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "queue",
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "paused",
+                        "type": "bool"
+                    },
+                    {
+                        "name": "changed_by",
+                        "type": "pubkey"
+                    }
+                ]
+            }
+        }
+    ]
+}
