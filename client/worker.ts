@@ -120,18 +120,42 @@ function sortReadyJobs(jobs: JobRecord[]): JobRecord[] {
     });
 }
 
+async function fetchJobsByIds(
+  client: SolQueueClient,
+  queuePda: PublicKey,
+  jobIds: number[]
+): Promise<JobRecord[]> {
+  const jobs: JobRecord[] = [];
+  for (const id of jobIds) {
+    const [jobPda] = client.deriveJobPda(queuePda, id);
+    try {
+      jobs.push(await client.getJob(jobPda));
+    } catch {
+      // Skip missing accounts.
+    }
+  }
+  return jobs;
+}
+
 async function processReadyJobs(
   client: SolQueueClient,
   queuePda: PublicKey,
   worker = loadKeypairFromFile(process.env.WALLET_PATH ?? defaultWalletPath()),
   cluster: Cluster
 ): Promise<number> {
-  const jobs = sortReadyJobs(await client.getAllJobs(queuePda));
+  // Read pending + delayed indexes instead of scanning all job accounts
+  const readyIds = await client.getReadyJobIds(queuePda);
+  if (readyIds.length === 0) {
+    return 0;
+  }
+
+  const candidateJobs = await fetchJobsByIds(client, queuePda, readyIds);
+  const jobs = sortReadyJobs(candidateJobs);
   let processed = 0;
 
   for (const job of jobs) {
     try {
-      const claimSignature = await client.claimJob(job.publicKey, worker);
+      const claimSignature = await client.claimJob(job.publicKey, queuePda, worker);
       console.log(`Claimed ${jobSummary(job)} -> ${formatTxLocation(claimSignature, cluster)}`);
     } catch (error) {
       console.warn(`Skipped ${jobSummary(job)} because claim failed: ${(error as Error).message}`);

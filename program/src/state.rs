@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use crate::errors::JobQueueError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Queue Account
@@ -174,5 +175,68 @@ pub enum JobStatus {
 impl Default for JobStatus {
     fn default() -> Self {
         JobStatus::Pending
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JobIndex Account
+//
+// Deterministic index for each job status within a queue.
+// Workers read a single index PDA to find pending/delayed jobs instead of
+// calling getProgramAccounts to scan ALL job accounts.
+//
+// Seeds: [b"index", queue_pubkey, index_type]
+//
+// Each queue has 6 indexes: pending, processing, delayed, failed, completed, cancelled.
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub const MAX_INDEX_ENTRIES: usize = 256;
+
+pub const INDEX_PENDING: &[u8] = b"pending";
+pub const INDEX_PROCESSING: &[u8] = b"processing";
+pub const INDEX_DELAYED: &[u8] = b"delayed";
+pub const INDEX_FAILED: &[u8] = b"failed";
+pub const INDEX_COMPLETED: &[u8] = b"completed";
+pub const INDEX_CANCELLED: &[u8] = b"cancelled";
+
+#[account]
+pub struct JobIndex {
+    /// The queue this index belongs to
+    pub queue: Pubkey,            // 32
+
+    /// Job IDs currently tracked by this index
+    pub job_ids: Vec<u64>,        // 4 + MAX_INDEX_ENTRIES * 8
+
+    /// PDA bump seed
+    pub bump: u8,                 // 1
+}
+
+impl JobIndex {
+    pub const SPACE: usize = 8    // discriminator
+        + 32                      // queue
+        + (4 + MAX_INDEX_ENTRIES * 8) // job_ids vec
+        + 1                       // bump
+        + 32;                     // padding
+
+    /// Push a job ID into this index. Fails if the index is full.
+    pub fn push_job(&mut self, job_id: u64) -> Result<()> {
+        require!(
+            self.job_ids.len() < MAX_INDEX_ENTRIES,
+            JobQueueError::IndexFull
+        );
+        self.job_ids.push(job_id);
+        Ok(())
+    }
+
+    /// Remove a job ID from this index. Fails if the job ID is not found.
+    /// Uses swap_remove for O(1) removal (order is not preserved).
+    pub fn remove_job(&mut self, job_id: u64) -> Result<()> {
+        let pos = self
+            .job_ids
+            .iter()
+            .position(|&id| id == job_id)
+            .ok_or(error!(JobQueueError::JobNotInIndex))?;
+        self.job_ids.swap_remove(pos);
+        Ok(())
     }
 }

@@ -40,4 +40,10 @@ pub enum JobQueueError {
 
     #[msg("Counter overflow")]
     Overflow,
+
+    #[msg("Index is full — maximum number of entries reached")]
+    IndexFull,
+
+    #[msg("Job ID was not found in the specified index")]
+    JobNotInIndex,
 }

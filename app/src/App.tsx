@@ -633,6 +633,23 @@ export default function App() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          {wallet.availableWallets.length > 1 ? (
+            <select
+              value={wallet.selectedWalletId ?? ""}
+              onChange={(event: any) => void wallet.selectWallet(event.target.value)}
+              style={{ ...inputStyle, width: 140, padding: "9px 12px" }}
+            >
+              {wallet.availableWallets.map((walletOption) => (
+                <option key={walletOption.id} value={walletOption.id}>
+                  {walletOption.label}
+                </option>
+              ))}
+            </select>
+          ) : wallet.selectedWalletLabel ? (
+            <div style={{ color: "#555", fontSize: 10 }}>
+              APP: <span style={{ color: "#777" }}>{wallet.selectedWalletLabel}</span>
+            </div>
+          ) : null}
           <div style={{ color: wallet.connected ? "#22c55e" : "#555", fontSize: 10 }}>
             WALLET: <span style={{ color: wallet.connected ? "#86efac" : "#777" }}>{wallet.shortAddress ?? "DISCONNECTED"}</span>
           </div>
@@ -647,7 +664,7 @@ export default function App() {
                   borderColor: wallet.available ? "#f59e0b" : "#222",
                 }}
               >
-                {wallet.connecting ? "SWITCHING" : "SWITCH WALLET"}
+                {wallet.connecting ? "SWITCHING" : "SWITCH ACCOUNT"}
               </button>
               <button
                 onClick={() => void wallet.disconnect()}
@@ -671,7 +688,7 @@ export default function App() {
                 borderColor: wallet.available ? "#3b82f6" : "#222",
               }}
             >
-              {wallet.connecting ? "CONNECTING" : "CONNECT WALLET"}
+              {wallet.connecting ? "CONNECTING" : `CONNECT ${wallet.selectedWalletLabel ?? "WALLET"}`}
             </button>
           )}
           <div style={{ color: "#333", fontSize: 10 }}>
@@ -730,7 +747,7 @@ export default function App() {
           <span>Auto refresh every {AUTO_REFRESH_MS / 1000}s</span>
           <span>
             {wallet.localhostMode
-              ? "Localhost mode disables silent wallet reconnect so account switching is easier."
+              ? "Localhost mode disables silent reconnect. Pick Phantom or Brave explicitly before connecting."
               : "Reads use RPC. New jobs are created with wallet-signed transactions."}
           </span>
         </div>

@@ -6,6 +6,7 @@ declare global {
     isConnected?: boolean;
     isPhantom?: boolean;
     isBraveWallet?: boolean;
+    providers?: SolanaInjectedProvider[];
     connect(options?: { onlyIfTrusted?: boolean }): Promise<{ publicKey?: PublicKey } | void>;
     disconnect(): Promise<void>;
     signTransaction<T extends Transaction | VersionedTransaction>(transaction: T): Promise<T>;
@@ -17,6 +18,9 @@ declare global {
   interface Window {
     solana?: SolanaInjectedProvider;
     braveSolana?: SolanaInjectedProvider;
+    phantom?: {
+      solana?: SolanaInjectedProvider;
+    };
   }
 }
 

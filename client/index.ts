@@ -7,13 +7,17 @@ import * as path from "path";
 import {
   PROGRAM_ID,
   deriveJobPda,
+  deriveIndexPda,
   deriveQueuePda,
   enqueueJobWithProgram,
   endpointForCluster,
   type Cluster,
+  type IndexType,
 } from "../shared/solqueue-core";
 import { SolQueue } from "../target/types/sol_queue";
 import idl from "../target/idl/sol_queue.json";
+
+export type { Cluster };
 
 export interface JobData {
   [key: string]: unknown;
@@ -105,6 +109,10 @@ export class SolQueueClient {
     return deriveJobPda(this.program.programId, queuePubkey, jobId);
   }
 
+  deriveIndexPda(queuePubkey: PublicKey, indexType: IndexType): [PublicKey, number] {
+    return deriveIndexPda(this.program.programId, queuePubkey, indexType);
+  }
+
   async createQueue(
     name: string,
     options: { maxRetries?: number } = {}
@@ -123,6 +131,49 @@ export class SolQueueClient {
       .rpc();
 
     return { queuePda, signature };
+  }
+
+  async initializeIndexes(queuePda: PublicKey): Promise<string> {
+    const authority = this.provider.wallet.publicKey;
+    const [pendingIndex] = this.deriveIndexPda(queuePda, "pending");
+    const [processingIndex] = this.deriveIndexPda(queuePda, "processing");
+    const [delayedIndex] = this.deriveIndexPda(queuePda, "delayed");
+    const [failedIndex] = this.deriveIndexPda(queuePda, "failed");
+    const [completedIndex] = this.deriveIndexPda(queuePda, "completed");
+    const [cancelledIndex] = this.deriveIndexPda(queuePda, "cancelled");
+
+    return this.program.methods
+      .initializeIndexes()
+      .accounts({
+        queue: queuePda,
+        pendingIndex,
+        processingIndex,
+        delayedIndex,
+        failedIndex,
+        completedIndex,
+        cancelledIndex,
+        authority,
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .rpc();
+  }
+
+  async getIndexJobIds(queuePda: PublicKey, indexType: IndexType): Promise<number[]> {
+    const [indexPda] = this.deriveIndexPda(queuePda, indexType);
+    try {
+      const data = await this.program.account.jobIndex.fetch(indexPda);
+      return data.jobIds.map((id: any) => (typeof id === "number" ? id : id.toNumber()));
+    } catch {
+      return [];
+    }
+  }
+
+  async getReadyJobIds(queuePda: PublicKey): Promise<number[]> {
+    const [pendingIds, delayedIds] = await Promise.all([
+      this.getIndexJobIds(queuePda, "pending"),
+      this.getIndexJobIds(queuePda, "delayed"),
+    ]);
+    return [...pendingIds, ...delayedIds];
   }
 
   async getQueueStats(queuePda: PublicKey): Promise<QueueStats> {
@@ -204,10 +255,20 @@ export class SolQueueClient {
     return jobs;
   }
 
-  async claimJob(jobPda: PublicKey, workerKeypair: Keypair): Promise<string> {
+  async claimJob(jobPda: PublicKey, queuePda: PublicKey, workerKeypair: Keypair): Promise<string> {
+    const [pendingIndex] = this.deriveIndexPda(queuePda, "pending");
+    const [delayedIndex] = this.deriveIndexPda(queuePda, "delayed");
+    const [processingIndex] = this.deriveIndexPda(queuePda, "processing");
+
     return this.program.methods
       .claimJob()
-      .accounts({ job: jobPda, worker: workerKeypair.publicKey })
+      .accounts({
+        job: jobPda,
+        worker: workerKeypair.publicKey,
+        pendingIndex,
+        delayedIndex,
+        processingIndex,
+      } as any)
       .signers([workerKeypair])
       .rpc();
   }
@@ -218,9 +279,18 @@ export class SolQueueClient {
     workerKeypair: Keypair,
     result?: string
   ): Promise<string> {
+    const [processingIndex] = this.deriveIndexPda(queuePda, "processing");
+    const [completedIndex] = this.deriveIndexPda(queuePda, "completed");
+
     return this.program.methods
       .completeJob(result ?? null)
-      .accounts({ queue: queuePda, job: jobPda, worker: workerKeypair.publicKey } as any)
+      .accounts({
+        queue: queuePda,
+        job: jobPda,
+        worker: workerKeypair.publicKey,
+        processingIndex,
+        completedIndex,
+      } as any)
       .signers([workerKeypair])
       .rpc();
   }
@@ -232,9 +302,20 @@ export class SolQueueClient {
     errorMessage: string,
     retryAfterSecs = 30
   ): Promise<string> {
+    const [processingIndex] = this.deriveIndexPda(queuePda, "processing");
+    const [delayedIndex] = this.deriveIndexPda(queuePda, "delayed");
+    const [failedIndex] = this.deriveIndexPda(queuePda, "failed");
+
     return this.program.methods
       .failJob(errorMessage, new BN(retryAfterSecs))
-      .accounts({ queue: queuePda, job: jobPda, worker: workerKeypair.publicKey } as any)
+      .accounts({
+        queue: queuePda,
+        job: jobPda,
+        worker: workerKeypair.publicKey,
+        processingIndex,
+        delayedIndex,
+        failedIndex,
+      } as any)
       .signers([workerKeypair])
       .rpc();
   }
@@ -279,7 +360,11 @@ async function main() {
     maxRetries: 3,
   });
   console.log(`   Queue PDA: ${queuePda.toBase58()}`);
-  console.log(`   Tx: ${formatTxLocation(createSig, cluster)}\n`);
+  console.log(`   Tx: ${formatTxLocation(createSig, cluster)}`);
+
+  console.log(`Initializing indexes...`);
+  const indexSig = await client.initializeIndexes(queuePda);
+  console.log(`   Tx: ${formatTxLocation(indexSig, cluster)}\n`);
 
   console.log("Enqueuing jobs...");
   const jobs: Array<{

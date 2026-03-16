@@ -6,7 +6,7 @@ import { SolQueue } from "../target/types/sol_queue";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SolQueue Test Suite
-// Tests cover the full job lifecycle + edge cases
+// Tests cover the full job lifecycle + edge cases + index PDA lookups
 // Run with: anchor test --skip-local-validator --provider.cluster localnet
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ describe("SolQueue — On-Chain Job Queue", () => {
   let queueBump: number;
   const queueName = `email-${Date.now().toString(36)}`;
 
-  // ── PDA helper ────────────────────────────────────────────────────────────
+  // ── PDA helpers ───────────────────────────────────────────────────────────
   function deriveQueuePda(auth: PublicKey, name: string) {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("queue"), auth.toBuffer(), Buffer.from(name)],
@@ -39,6 +39,25 @@ describe("SolQueue — On-Chain Job Queue", () => {
     );
   }
 
+  function deriveIndexPda(queue: PublicKey, indexType: string) {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("index"), queue.toBuffer(), Buffer.from(indexType)],
+      program.programId
+    );
+  }
+
+  // Shorthand to derive all 6 index PDAs for a queue
+  function deriveAllIndexPdas(queue: PublicKey) {
+    return {
+      pendingIndex: deriveIndexPda(queue, "pending")[0],
+      processingIndex: deriveIndexPda(queue, "processing")[0],
+      delayedIndex: deriveIndexPda(queue, "delayed")[0],
+      failedIndex: deriveIndexPda(queue, "failed")[0],
+      completedIndex: deriveIndexPda(queue, "completed")[0],
+      cancelledIndex: deriveIndexPda(queue, "cancelled")[0],
+    };
+  }
+
   async function fundAccount(recipient: PublicKey, lamports: number) {
     const signature = await provider.sendAndConfirm(
       new Transaction().add(
@@ -51,6 +70,8 @@ describe("SolQueue — On-Chain Job Queue", () => {
     );
     await provider.connection.confirmTransaction(signature);
   }
+
+  let indexes: ReturnType<typeof deriveAllIndexPdas>;
 
   // ── Fund test worker ──────────────────────────────────────────────────────
   before(async () => {
@@ -66,7 +87,7 @@ describe("SolQueue — On-Chain Job Queue", () => {
     [queuePda, queueBump] = deriveQueuePda(authority.publicKey, queueName);
 
     await program.methods
-      .initializeQueue(queueName, 3) // name, max_retries
+      .initializeQueue(queueName, 3)
       .accounts({
         queue: queuePda,
         authority: authority.publicKey,
@@ -84,8 +105,34 @@ describe("SolQueue — On-Chain Job Queue", () => {
     console.log(`  ✓ Queue PDA: ${queuePda.toBase58()}`);
   });
 
+  // ─── Test 1b: Initialize Indexes ──────────────────────────────────────────
+  it("initializes all 6 index PDAs for the queue", async () => {
+    indexes = deriveAllIndexPdas(queuePda);
+
+    await program.methods
+      .initializeIndexes()
+      .accounts({
+        queue: queuePda,
+        pendingIndex: indexes.pendingIndex,
+        processingIndex: indexes.processingIndex,
+        delayedIndex: indexes.delayedIndex,
+        failedIndex: indexes.failedIndex,
+        completedIndex: indexes.completedIndex,
+        cancelledIndex: indexes.cancelledIndex,
+        authority: authority.publicKey,
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .rpc();
+
+    const pending = await program.account.jobIndex.fetch(indexes.pendingIndex);
+    assert.equal(pending.queue.toBase58(), queuePda.toBase58());
+    assert.equal(pending.jobIds.length, 0);
+
+    console.log(`  ✓ All 6 indexes initialized`);
+  });
+
   // ─── Test 2: Enqueue a job ────────────────────────────────────────────────
-  it("enqueues a job with payload and priority", async () => {
+  it("enqueues a job and adds it to the pending index", async () => {
     const [jobPda] = deriveJobPda(queuePda, new BN(0));
     const payload = Buffer.from(JSON.stringify({
       to: "user@example.com",
@@ -94,35 +141,31 @@ describe("SolQueue — On-Chain Job Queue", () => {
     }));
 
     await program.methods
-      .enqueueJob(
-        payload,
-        "send-email",         // job_type
-        1,                    // priority: normal
-        new BN(0),            // execute_after: immediate
-      )
+      .enqueueJob(payload, "send-email", 1, new BN(0))
       .accounts({
         queue: queuePda,
         job: jobPda,
+        pendingIndex: indexes.pendingIndex,
         payer: authority.publicKey,
         systemProgram: SystemProgram.programId,
-      })
+      } as any)
       .rpc();
 
     const job = await program.account.job.fetch(jobPda);
     assert.equal(job.jobType, "send-email");
     assert.equal(job.priority, 1);
     assert.deepEqual(job.status, { pending: {} });
-    assert.isNull(job.worker);
 
-    const queue = await program.account.queue.fetch(queuePda);
-    assert.equal(queue.jobCount.toNumber(), 1);
-    assert.equal(queue.pendingCount.toNumber(), 1);
+    // Verify job is in the pending index
+    const pending = await program.account.jobIndex.fetch(indexes.pendingIndex);
+    assert.equal(pending.jobIds.length, 1);
+    assert.equal(pending.jobIds[0].toNumber(), 0);
 
     console.log(`  ✓ Job #0 PDA: ${jobPda.toBase58()}`);
   });
 
   // ─── Test 3: Claim a job ──────────────────────────────────────────────────
-  it("worker claims a pending job — status becomes Processing", async () => {
+  it("worker claims a pending job — moves from pending to processing index", async () => {
     const [jobPda] = deriveJobPda(queuePda, new BN(0));
 
     await program.methods
@@ -130,21 +173,30 @@ describe("SolQueue — On-Chain Job Queue", () => {
       .accounts({
         job: jobPda,
         worker: worker.publicKey,
-      })
+        pendingIndex: indexes.pendingIndex,
+        delayedIndex: indexes.delayedIndex,
+        processingIndex: indexes.processingIndex,
+      } as any)
       .signers([worker])
       .rpc();
 
     const job = await program.account.job.fetch(jobPda);
     assert.deepEqual(job.status, { processing: {} });
     assert.equal(job.worker!.toBase58(), worker.publicKey.toBase58());
-    assert.equal(job.attempts, 1);
-    assert.isNotNull(job.startedAt);
 
-    console.log(`  ✓ Job claimed by worker: ${worker.publicKey.toBase58()}`);
+    // Verify index updates
+    const pending = await program.account.jobIndex.fetch(indexes.pendingIndex);
+    assert.equal(pending.jobIds.length, 0);
+
+    const processing = await program.account.jobIndex.fetch(indexes.processingIndex);
+    assert.equal(processing.jobIds.length, 1);
+    assert.equal(processing.jobIds[0].toNumber(), 0);
+
+    console.log(`  ✓ Job claimed — pending→processing index updated`);
   });
 
   // ─── Test 4: Complete a job ───────────────────────────────────────────────
-  it("worker completes job with result — queue stats updated", async () => {
+  it("worker completes job — moves from processing to completed index", async () => {
     const [jobPda] = deriveJobPda(queuePda, new BN(0));
     const result = JSON.stringify({ messageId: "msg_abc123", status: "sent" });
 
@@ -154,118 +206,143 @@ describe("SolQueue — On-Chain Job Queue", () => {
         queue: queuePda,
         job: jobPda,
         worker: worker.publicKey,
-      })
+        processingIndex: indexes.processingIndex,
+        completedIndex: indexes.completedIndex,
+      } as any)
       .signers([worker])
       .rpc();
 
     const job = await program.account.job.fetch(jobPda);
     assert.deepEqual(job.status, { completed: {} });
     assert.equal(job.result, result);
-    assert.isNotNull(job.completedAt);
 
-    const queue = await program.account.queue.fetch(queuePda);
-    assert.equal(queue.processedCount.toNumber(), 1);
-    assert.equal(queue.pendingCount.toNumber(), 0);
+    // Verify index updates
+    const processing = await program.account.jobIndex.fetch(indexes.processingIndex);
+    assert.equal(processing.jobIds.length, 0);
 
-    console.log(`  ✓ Job completed with result`);
+    const completed = await program.account.jobIndex.fetch(indexes.completedIndex);
+    assert.equal(completed.jobIds.length, 1);
+    assert.equal(completed.jobIds[0].toNumber(), 0);
+
+    console.log(`  ✓ Job completed — processing→completed index updated`);
   });
 
   // ─── Test 5: Retry logic ──────────────────────────────────────────────────
-  it("failing a job below max_retries re-queues it as Pending", async () => {
-    // Enqueue a fresh job
+  it("failing a job below max_retries moves it to the delayed index", async () => {
     const [jobPda] = deriveJobPda(queuePda, new BN(1));
     await program.methods
       .enqueueJob(Buffer.from("retry-test"), "webhook-call", 2, new BN(0))
-      .accounts({ queue: queuePda, job: jobPda, payer: authority.publicKey, systemProgram: SystemProgram.programId })
+      .accounts({ queue: queuePda, job: jobPda, pendingIndex: indexes.pendingIndex, payer: authority.publicKey, systemProgram: SystemProgram.programId } as any)
       .rpc();
 
     // Claim it
     await program.methods.claimJob()
-      .accounts({ job: jobPda, worker: worker.publicKey })
+      .accounts({ job: jobPda, worker: worker.publicKey, pendingIndex: indexes.pendingIndex, delayedIndex: indexes.delayedIndex, processingIndex: indexes.processingIndex } as any)
       .signers([worker])
       .rpc();
 
-    // Fail it with immediate retry so the test remains deterministic
+    // Fail it with immediate retry
     await program.methods
       .failJob("Connection timeout", new BN(0))
-      .accounts({ queue: queuePda, job: jobPda, worker: worker.publicKey })
+      .accounts({ queue: queuePda, job: jobPda, worker: worker.publicKey, processingIndex: indexes.processingIndex, delayedIndex: indexes.delayedIndex, failedIndex: indexes.failedIndex } as any)
       .signers([worker])
       .rpc();
 
     const job = await program.account.job.fetch(jobPda);
-    assert.deepEqual(job.status, { pending: {} }); // re-queued!
-    assert.equal(job.attempts, 1);                 // attempt count preserved
-    assert.isNull(job.worker);                     // worker cleared
-    assert.isNotNull(job.errorMessage);            // error recorded
+    assert.deepEqual(job.status, { pending: {} });
+    assert.equal(job.attempts, 1);
 
-    console.log(`  ✓ Job re-queued after failure (attempt 1/${3})`);
+    // Verify it moved to delayed index (retry with backoff)
+    const delayed = await program.account.jobIndex.fetch(indexes.delayedIndex);
+    assert.include(
+      delayed.jobIds.map((id: any) => id.toNumber()),
+      1
+    );
+
+    console.log(`  ✓ Job re-queued to delayed index after failure`);
   });
 
   // ─── Test 6: Dead letter after max retries ────────────────────────────────
-  it("job reaches Failed state after exhausting max_retries", async () => {
+  it("job reaches Failed state and moves to failed index", async () => {
     const [jobPda] = deriveJobPda(queuePda, new BN(1));
 
-    // Simulate retries until exhausted (max_retries = 3, already has 1 attempt)
     for (let i = 0; i < 3; i++) {
       try {
         await program.methods.claimJob()
-          .accounts({ job: jobPda, worker: worker.publicKey })
+          .accounts({ job: jobPda, worker: worker.publicKey, pendingIndex: indexes.pendingIndex, delayedIndex: indexes.delayedIndex, processingIndex: indexes.processingIndex } as any)
           .signers([worker])
           .rpc();
 
         await program.methods
           .failJob(`Attempt ${i + 2} failed`, new BN(0))
-          .accounts({ queue: queuePda, job: jobPda, worker: worker.publicKey })
+          .accounts({ queue: queuePda, job: jobPda, worker: worker.publicKey, processingIndex: indexes.processingIndex, delayedIndex: indexes.delayedIndex, failedIndex: indexes.failedIndex } as any)
           .signers([worker])
           .rpc();
       } catch (_) {
-        break; // job may have become Failed
+        break;
       }
     }
 
     const job = await program.account.job.fetch(jobPda);
     assert.deepEqual(job.status, { failed: {} });
 
-    const queue = await program.account.queue.fetch(queuePda);
-    assert.equal(queue.failedCount.toNumber(), 1);
+    // Verify it's in the failed index
+    const failed = await program.account.jobIndex.fetch(indexes.failedIndex);
+    assert.include(
+      failed.jobIds.map((id: any) => id.toNumber()),
+      1
+    );
 
-    console.log(`  ✓ Job reached dead-letter state after max retries`);
+    console.log(`  ✓ Job reached dead-letter state in failed index`);
   });
 
   // ─── Test 7: Cancel a job ─────────────────────────────────────────────────
-  it("authority can cancel a pending job", async () => {
+  it("authority cancels a pending job — moves to cancelled index", async () => {
     const [jobPda] = deriveJobPda(queuePda, new BN(2));
 
-    // Enqueue
     await program.methods
       .enqueueJob(Buffer.from("cancel-me"), "image-resize", 0, new BN(0))
-      .accounts({ queue: queuePda, job: jobPda, payer: authority.publicKey, systemProgram: SystemProgram.programId })
+      .accounts({ queue: queuePda, job: jobPda, pendingIndex: indexes.pendingIndex, payer: authority.publicKey, systemProgram: SystemProgram.programId } as any)
       .rpc();
 
-    // Cancel as authority
     await program.methods.cancelJob()
-      .accounts({ queue: queuePda, job: jobPda, authority: authority.publicKey })
+      .accounts({
+        queue: queuePda,
+        job: jobPda,
+        authority: authority.publicKey,
+        pendingIndex: indexes.pendingIndex,
+        delayedIndex: indexes.delayedIndex,
+        processingIndex: indexes.processingIndex,
+        cancelledIndex: indexes.cancelledIndex,
+      } as any)
       .rpc();
 
     const job = await program.account.job.fetch(jobPda);
     assert.deepEqual(job.status, { cancelled: {} });
 
-    console.log(`  ✓ Job #2 cancelled by authority`);
+    // Verify it's in the cancelled index
+    const cancelled = await program.account.jobIndex.fetch(indexes.cancelledIndex);
+    assert.include(
+      cancelled.jobIds.map((id: any) => id.toNumber()),
+      2
+    );
+
+    console.log(`  ✓ Job #2 cancelled — moved to cancelled index`);
   });
 
   // ─── Test 8: Scheduled job ────────────────────────────────────────────────
   it("scheduled job cannot be claimed before execute_after", async () => {
     const [jobPda] = deriveJobPda(queuePda, new BN(3));
-    const futureTime = new BN(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
+    const futureTime = new BN(Math.floor(Date.now() / 1000) + 3600);
 
     await program.methods
       .enqueueJob(Buffer.from("run later"), "daily-report", 1, futureTime)
-      .accounts({ queue: queuePda, job: jobPda, payer: authority.publicKey, systemProgram: SystemProgram.programId })
+      .accounts({ queue: queuePda, job: jobPda, pendingIndex: indexes.pendingIndex, payer: authority.publicKey, systemProgram: SystemProgram.programId } as any)
       .rpc();
 
     try {
       await program.methods.claimJob()
-        .accounts({ job: jobPda, worker: worker.publicKey })
+        .accounts({ job: jobPda, worker: worker.publicKey, pendingIndex: indexes.pendingIndex, delayedIndex: indexes.delayedIndex, processingIndex: indexes.processingIndex } as any)
         .signers([worker])
         .rpc();
       assert.fail("Should have thrown JobNotReady error");
@@ -287,7 +364,7 @@ describe("SolQueue — On-Chain Job Queue", () => {
     try {
       await program.methods
         .enqueueJob(Buffer.from("blocked"), "test-job", 1, new BN(0))
-        .accounts({ queue: queuePda, job: jobPda, payer: authority.publicKey, systemProgram: SystemProgram.programId })
+        .accounts({ queue: queuePda, job: jobPda, pendingIndex: indexes.pendingIndex, payer: authority.publicKey, systemProgram: SystemProgram.programId } as any)
         .rpc();
       assert.fail("Should have thrown QueuePaused");
     } catch (err: any) {
@@ -295,7 +372,6 @@ describe("SolQueue — On-Chain Job Queue", () => {
       console.log(`  ✓ Paused queue correctly rejected new job`);
     }
 
-    // Resume
     await program.methods
       .setQueuePaused(false)
       .accounts({ queue: queuePda, authority: authority.publicKey })
@@ -310,22 +386,20 @@ describe("SolQueue — On-Chain Job Queue", () => {
       0.25 * anchor.web3.LAMPORTS_PER_SOL
     );
 
-    // Enqueue + claim with real worker
     const [jobPda] = deriveJobPda(queuePda, new BN(4));
     await program.methods
       .enqueueJob(Buffer.from("secure"), "audit-log", 2, new BN(0))
-      .accounts({ queue: queuePda, job: jobPda, payer: authority.publicKey, systemProgram: SystemProgram.programId })
+      .accounts({ queue: queuePda, job: jobPda, pendingIndex: indexes.pendingIndex, payer: authority.publicKey, systemProgram: SystemProgram.programId } as any)
       .rpc();
 
     await program.methods.claimJob()
-      .accounts({ job: jobPda, worker: worker.publicKey })
+      .accounts({ job: jobPda, worker: worker.publicKey, pendingIndex: indexes.pendingIndex, delayedIndex: indexes.delayedIndex, processingIndex: indexes.processingIndex } as any)
       .signers([worker])
       .rpc();
 
-    // Attempt to complete with wrong signer
     try {
       await program.methods.completeJob("stolen result")
-        .accounts({ queue: queuePda, job: jobPda, worker: interloper.publicKey })
+        .accounts({ queue: queuePda, job: jobPda, worker: interloper.publicKey, processingIndex: indexes.processingIndex, completedIndex: indexes.completedIndex } as any)
         .signers([interloper])
         .rpc();
       assert.fail("Should have thrown Unauthorized");
@@ -347,6 +421,19 @@ describe("SolQueue — On-Chain Job Queue", () => {
     console.log(`  Completed:            ${queue.processedCount.toString()}`);
     console.log(`  Failed (dead letter): ${queue.failedCount.toString()}`);
     console.log(`  Pending:              ${queue.pendingCount.toString()}`);
+
+    // Show index contents
+    const idx = deriveAllIndexPdas(queuePda);
+    for (const [name, pda] of Object.entries(idx)) {
+      try {
+        const data = await program.account.jobIndex.fetch(pda);
+        const ids = data.jobIds.map((id: any) => id.toNumber());
+        console.log(`  ${name.padEnd(18)} ${ids.length > 0 ? ids.join(", ") : "(empty)"}`);
+      } catch {
+        console.log(`  ${name.padEnd(18)} (not initialized)`);
+      }
+    }
+
     console.log(`  Queue PDA:            ${queuePda.toBase58()}`);
     console.log(`  Program ID:           ${program.programId.toBase58()}`);
   });

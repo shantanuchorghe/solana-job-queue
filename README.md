@@ -12,7 +12,7 @@ Configured program ID: `BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas`
 - TypeScript client / CLI demo: real
 - TypeScript worker loop: real
 - Anchor test suite: real
-- React dashboard: real read-only queue explorer backed by live RPC reads
+- React dashboard: real live queue explorer with wallet-based job creation, backed by live RPC reads
 
 ## Core Features
 
@@ -24,13 +24,16 @@ Configured program ID: `BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas`
 - Failed-job dead-letter state
 - Queue-level pause protection
 - Authority-only cancellation paths
+- Wallet-based job creation from the React dashboard (Phantom / Brave wallet support)
+- Live event subscriptions via `program.addEventListener`
 
 ## Repo Layout
 
 ```text
-program/   Anchor program
-tests/     TypeScript Anchor tests
+program/   Anchor program (Rust)
+shared/    Shared TypeScript utilities (PDA derivation, types, enqueue logic)
 client/    TypeScript SDK + CLI + worker
+tests/     TypeScript Anchor tests
 app/       Vite + React live dashboard
 scripts/   Wrapper scripts for build/test/deploy
 vendor/    Local compatibility patch for anchor-syn
@@ -49,7 +52,7 @@ Recommended setup:
 npm install
 ```
 
-Verified locally on March 14, 2026:
+Verified locally on March 16, 2026:
 
 - `npm run build`
 - `npm run test:localnet:attached`
@@ -89,12 +92,26 @@ Override the cluster with `npm run client:devnet` or `SOLQUEUE_CLUSTER`.
 Run the example worker against an existing queue:
 
 ```powershell
+# Devnet
 npm run worker:devnet -- <QUEUE_PDA>
+
+# Localnet
+npm run worker -- <QUEUE_PDA>
 ```
 
 The worker watches for ready jobs, claims them, and completes or fails them using
-simple built-in demo handlers. Use `SOLQUEUE_QUEUE`, `SOLQUEUE_POLL_MS`, and
-`SOLQUEUE_RETRY_AFTER_SECS` to tune it.
+simple built-in demo handlers.
+
+### Worker Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `SOLQUEUE_CLUSTER` | `localnet` | Target cluster (`localnet`, `devnet`, `mainnet-beta`) |
+| `SOLQUEUE_QUEUE` | — | Queue PDA (alternative to positional arg) |
+| `SOLQUEUE_POLL_MS` | `5000` | Polling interval in milliseconds |
+| `SOLQUEUE_RETRY_AFTER_SECS` | `30` | Base retry delay for failed jobs |
+| `SOLQUEUE_WORKER_ONCE` | `0` | Set to `1` for a single processing pass then exit |
+| `WALLET_PATH` | `~/.config/solana/id.json` | Path to the worker's keypair file |
 
 ## Test
 
@@ -138,15 +155,22 @@ Build the dashboard:
 npm run app:build
 ```
 
-The dashboard now reads real queue/job accounts from `devnet` or `localnet`.
+The dashboard reads real queue and job accounts from `devnet` or `localnet`.
 Paste a queue PDA into the header form and it will:
 
 - fetch queue metadata and derived job PDAs live from RPC
 - show actual job payloads, results, and error messages
 - subscribe to live events that arrive while the page is open
+- let you **enqueue new jobs** directly from the dashboard using a connected Solana wallet (Phantom or Brave)
 
-The dashboard is intentionally read-only for the MVP.
-Create/enqueue jobs from the CLI and let the worker process them.
+### Creating Jobs from the Dashboard
+
+1. Connect your wallet using the **CONNECT** button in the header.
+2. Load a queue by pasting the queue PDA.
+3. Fill in the **Create Job** form (job type, priority, delay, JSON payload).
+4. Click **ENQUEUE JOB** — the transaction is signed by your wallet and submitted on-chain.
+
+The payer for the new job PDA is the connected wallet, not the queue authority.
 
 Optional: set a default queue in `app/.env.example` / `.env.local`:
 
@@ -168,6 +192,8 @@ If you want the fastest demo path for reviewers:
 6. Copy the queue PDA from the CLI output
 7. `npm run worker:devnet -- <QUEUE_PDA>`
 8. `npm run app` and paste the same queue PDA into the dashboard
+9. Connect a Solana wallet in the dashboard and enqueue a job from the form
+10. Watch the worker pick it up and complete it live
 
 ## Windows Build Note
 
@@ -181,7 +207,7 @@ On Windows, that wrapper:
 
 ## Honest Limitations
 
-- The React app is read-only in this MVP; queue mutation stays in the CLI.
+- The dashboard supports job creation via wallet, but does not yet support cancel, pause/resume, or retry operations from the UI.
 - The example worker handles demo job types locally; it is not a generalized production worker runtime.
 - Local validator startup may fail on some Windows environments with OS error `1314`.
 - Devnet deployment of the current program binary needs materially more than `0.5 SOL`; budget closer to `~3 SOL` to have room for deploy + queue/job creation.

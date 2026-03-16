@@ -197,8 +197,21 @@ export default function CreateJobForm({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {wallet.availableWallets.length > 1 ? (
+            <select
+              value={wallet.selectedWalletId ?? ""}
+              onChange={(event: any) => void wallet.selectWallet(event.target.value)}
+              style={{ ...fieldStyle, width: 130, padding: "9px 12px" }}
+            >
+              {wallet.availableWallets.map((walletOption) => (
+                <option key={walletOption.id} value={walletOption.id}>
+                  {walletOption.label}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <div style={{ color: wallet.connected ? "#22c55e" : "#666", fontSize: 10, letterSpacing: 2 }}>
-            WALLET {walletLabel}
+            {wallet.selectedWalletLabel ? `${wallet.selectedWalletLabel.toUpperCase()} ` : ""}WALLET {walletLabel}
           </div>
           {!wallet.connected ? (
             <button
@@ -212,7 +225,7 @@ export default function CreateJobForm({
                 color: wallet.available ? "#86efac" : "#555",
               }}
             >
-              {wallet.connecting ? "CONNECTING" : "CONNECT WALLET"}
+              {wallet.connecting ? "CONNECTING" : `CONNECT ${wallet.selectedWalletLabel ?? "WALLET"}`}
             </button>
           ) : (
             <button
@@ -226,7 +239,7 @@ export default function CreateJobForm({
                 color: wallet.available ? "#fcd34d" : "#555",
               }}
             >
-              {wallet.connecting ? "SWITCHING" : "SWITCH WALLET"}
+              {wallet.connecting ? "SWITCHING" : "SWITCH ACCOUNT"}
             </button>
           )}
         </div>
@@ -307,7 +320,7 @@ export default function CreateJobForm({
               {queue?.paused
                 ? "Queue is paused and will reject new jobs."
                 : wallet.localhostMode
-                  ? "On localhost, wallet auto-reconnect is disabled so you can switch accounts more easily."
+                  ? "On localhost, pick Phantom or Brave explicitly, then use switch account if you need a different address inside that wallet."
                   : "Writes are signed by the connected wallet."}
             </div>
           </div>

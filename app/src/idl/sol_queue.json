@@ -11,11 +11,7 @@
       "name": "cancel_job",
       "docs": [
         "Cancel a pending or processing job (queue authority only).",
-        "",
-        "Web2: `await queue.remove(jobId)` — Redis DEL + LREM",
-        "Solana: Authority-gated cancel. Only queue.authority can cancel.",
-        "This is analogous to an admin console \"remove job\" action,",
-        "enforced cryptographically — no admin password needed."
+        "Removes from the appropriate source index, pushes to cancelled index."
       ],
       "discriminator": [
         126,
@@ -42,6 +38,147 @@
         {
           "name": "authority",
           "signer": true
+        },
+        {
+          "name": "pending_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "delayed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  97,
+                  121,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "processing_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  99,
+                  101,
+                  115,
+                  115,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "cancelled_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  110,
+                  99,
+                  101,
+                  108,
+                  108,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -50,13 +187,7 @@
       "name": "claim_job",
       "docs": [
         "Claim a job — worker atomically locks it for processing.",
-        "",
-        "Web2: `const job = await worker.getNextJob()`",
-        "→ Redis atomic BRPOPLPUSH pending→processing (prevents double-claim)",
-        "Solana: Worker signs the tx. Job status flips Pending → Processing.",
-        "Worker pubkey is stamped on the job account — no other worker",
-        "can complete or fail it. Replaces distributed locks entirely.",
-        "The blockchain itself is the mutex."
+        "Removes the job ID from pending or delayed index and pushes to processing index."
       ],
       "discriminator": [
         9,
@@ -76,6 +207,114 @@
         {
           "name": "worker",
           "signer": true
+        },
+        {
+          "name": "pending_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "job.queue",
+                "account": "Job"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "delayed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "job.queue",
+                "account": "Job"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  97,
+                  121,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "processing_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "job.queue",
+                "account": "Job"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  99,
+                  101,
+                  115,
+                  115,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -84,12 +323,7 @@
       "name": "complete_job",
       "docs": [
         "Mark a job as completed and write the result on-chain.",
-        "",
-        "Web2: `await job.moveToCompleted('{\"sent\":true}', true)`",
-        "→ Redis DEL active:job, ZADD completed:job score=ts",
-        "Solana: Only the claiming worker can call this — enforced by",
-        "comparing job.worker == signer. Result stored on the",
-        "job account, readable by anyone, forever, trustlessly."
+        "Removes from processing index, pushes to completed index."
       ],
       "discriminator": [
         221,
@@ -116,6 +350,79 @@
         {
           "name": "worker",
           "signer": true
+        },
+        {
+          "name": "processing_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  99,
+                  101,
+                  115,
+                  115,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "completed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  112,
+                  108,
+                  101,
+                  116,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -131,13 +438,7 @@
       "name": "enqueue_job",
       "docs": [
         "Enqueue a job with optional scheduling and priority.",
-        "",
-        "Web2: `await emailQueue.add('send-welcome', { to: 'user@example.com' }, { priority: 1 })`",
-        "→ Redis LPUSH / SQS SendMessage",
-        "Solana: Creates a Job PDA keyed by (queue_pubkey, job_id u64).",
-        "Payload stored as raw bytes (max 512 bytes).",
-        "`execute_after` enables cron-style delayed execution",
-        "without any external scheduler process."
+        "Atomically pushes the job ID into the pending index."
       ],
       "discriminator": [
         15,
@@ -180,6 +481,40 @@
           }
         },
         {
+          "name": "pending_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "payer",
           "writable": true,
           "signer": true
@@ -212,14 +547,7 @@
       "name": "fail_job",
       "docs": [
         "Fail a job — triggers automatic retry with exponential backoff.",
-        "",
-        "Web2: `await job.moveToFailed({ message: 'SMTP timeout' })`",
-        "→ Bull checks attempts < maxRetries, re-queues with delay",
-        "Solana: Identical retry logic, fully on-chain state machine.",
-        "If attempts < max_retries → status reverts to Pending,",
-        "execute_after = now + (retry_after * 2^attempt) (backoff).",
-        "If exhausted → JobStatus::Failed (dead letter queue equivalent).",
-        "No external scheduler, no Redis TTL, no cron job required."
+        "Removes from processing index, pushes to delayed (retry) or failed (exhausted) index."
       ],
       "discriminator": [
         211,
@@ -246,6 +574,110 @@
         {
           "name": "worker",
           "signer": true
+        },
+        {
+          "name": "processing_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  99,
+                  101,
+                  115,
+                  115,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "delayed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  97,
+                  121,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "failed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  97,
+                  105,
+                  108,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -260,13 +692,251 @@
       ]
     },
     {
+      "name": "initialize_indexes",
+      "docs": [
+        "Initialize all 6 job index PDAs for a queue.",
+        "Must be called once after initialize_queue, before enqueuing any jobs."
+      ],
+      "discriminator": [
+        24,
+        99,
+        43,
+        75,
+        143,
+        230,
+        84,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "queue"
+        },
+        {
+          "name": "pending_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "processing_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  99,
+                  101,
+                  115,
+                  115,
+                  105,
+                  110,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "delayed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  97,
+                  121,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "failed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  97,
+                  105,
+                  108,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "completed_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  112,
+                  108,
+                  101,
+                  116,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "cancelled_index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  110,
+                  99,
+                  101,
+                  108,
+                  108,
+                  101,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "initialize_queue",
       "docs": [
-        "Initialize a named queue.",
-        "",
-        "Web2: `new Queue('email-jobs', { connection: redisConfig })`",
-        "Solana: Creates a PDA keyed by (authority, queue_name).",
-        "The queue account stores metadata and a monotonic job counter."
+        "Initialize a named queue."
       ],
       "discriminator": [
         174,
@@ -329,12 +999,7 @@
     {
       "name": "set_queue_paused",
       "docs": [
-        "Pause or resume a queue.",
-        "",
-        "Web2: `await queue.pause()` / `await queue.resume()`",
-        "→ Bull sets queue:paused = 1 in Redis",
-        "Solana: Single boolean on queue PDA. Checked atomically in enqueue_job.",
-        "Workers should check queue.paused before claim_job off-chain."
+        "Pause or resume a queue."
       ],
       "discriminator": [
         75,
@@ -376,6 +1041,19 @@
         180,
         202,
         80
+      ]
+    },
+    {
+      "name": "JobIndex",
+      "discriminator": [
+        100,
+        14,
+        60,
+        78,
+        100,
+        211,
+        119,
+        193
       ]
     },
     {
@@ -563,6 +1241,16 @@
       "code": 6012,
       "name": "Overflow",
       "msg": "Counter overflow"
+    },
+    {
+      "code": 6013,
+      "name": "IndexFull",
+      "msg": "Index is full — maximum number of entries reached"
+    },
+    {
+      "code": 6014,
+      "name": "JobNotInIndex",
+      "msg": "Job ID was not found in the specified index"
     }
   ],
   "types": [
@@ -840,6 +1528,37 @@
           {
             "name": "failed_at",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JobIndex",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "docs": [
+              "The queue this index belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "job_ids",
+            "docs": [
+              "Job IDs currently tracked by this index"
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
           }
         ]
       }

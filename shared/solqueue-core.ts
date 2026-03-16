@@ -7,6 +7,7 @@ export const MAX_JOB_TYPE_LENGTH = 32;
 
 export type Cluster = "devnet" | "localnet" | "mainnet-beta";
 export type JobPriority = 0 | 1 | 2;
+export type IndexType = "pending" | "processing" | "delayed" | "failed" | "completed" | "cancelled";
 
 export interface EnqueueJobOptions {
   priority?: JobPriority;
@@ -60,6 +61,21 @@ export function deriveJobPda(
 
   return PublicKey.findProgramAddressSync(
     [new TextEncoder().encode("job"), queuePubkey.toBytes(), idBytes],
+    programId
+  );
+}
+
+export function deriveIndexPda(
+  programId: PublicKey,
+  queuePubkey: PublicKey,
+  indexType: IndexType
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      new TextEncoder().encode("index"),
+      queuePubkey.toBytes(),
+      new TextEncoder().encode(indexType),
+    ],
     programId
   );
 }
@@ -132,11 +148,14 @@ export async function enqueueJobWithProgram({
   const [jobPda] = deriveJobPda(program.programId, queuePda, jobId);
   const executeAfter = buildExecuteAfter(delay);
 
+  const [pendingIndex] = deriveIndexPda(program.programId, queuePda, "pending");
+
   const signature = await program.methods
     .enqueueJob(payloadBytes, normalizedJobType, priority, executeAfter)
     .accounts({
       queue: queuePda,
       job: jobPda,
+      pendingIndex,
       payer,
       systemProgram: SystemProgram.programId,
     } as any)

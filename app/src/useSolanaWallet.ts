@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Transaction, VersionedTransaction } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 
@@ -7,12 +7,24 @@ export interface BrowserWalletAdapter {
   isConnected?: boolean;
   isPhantom?: boolean;
   isBraveWallet?: boolean;
+  providers?: BrowserWalletAdapter[];
   connect(options?: { onlyIfTrusted?: boolean }): Promise<{ publicKey?: PublicKey } | void>;
   disconnect(): Promise<void>;
   signTransaction<T extends Transaction | VersionedTransaction>(transaction: T): Promise<T>;
   signAllTransactions?<T extends Transaction | VersionedTransaction>(transactions: T[]): Promise<T[]>;
   on?(event: "connect" | "disconnect" | "accountChanged", handler: (publicKey?: PublicKey | null) => void): void;
   off?(event: "connect" | "disconnect" | "accountChanged", handler: (publicKey?: PublicKey | null) => void): void;
+}
+
+export type WalletProviderId = "phantom" | "brave" | "solana";
+
+export interface WalletOption {
+  id: WalletProviderId;
+  label: string;
+}
+
+interface WalletRecord extends WalletOption {
+  provider: BrowserWalletAdapter;
 }
 
 export interface SolanaWalletState {
@@ -24,20 +36,78 @@ export interface SolanaWalletState {
   address: string | null;
   shortAddress: string | null;
   provider: BrowserWalletAdapter | null;
+  availableWallets: WalletOption[];
+  selectedWalletId: WalletProviderId | null;
+  selectedWalletLabel: string | null;
   error: string | null;
   connect(): Promise<void>;
   switchWallet(): Promise<void>;
+  selectWallet(walletId: WalletProviderId): Promise<void>;
   disconnect(): Promise<void>;
 }
 
-function resolveBrowserWallet(): BrowserWalletAdapter | null {
-  const provider = window.braveSolana ?? window.solana ?? null;
+const WALLET_STORAGE_KEY = "solqueue-wallet-provider";
+const WALLET_ORDER: WalletProviderId[] = ["phantom", "brave", "solana"];
 
-  if (!provider || typeof provider.connect !== "function" || typeof provider.signTransaction !== "function") {
-    return null;
+function isWalletProvider(value: unknown): value is BrowserWalletAdapter {
+  return value != null
+    && typeof value === "object"
+    && typeof (value as BrowserWalletAdapter).connect === "function"
+    && typeof (value as BrowserWalletAdapter).disconnect === "function"
+    && typeof (value as BrowserWalletAdapter).signTransaction === "function";
+}
+
+function providerId(provider: BrowserWalletAdapter): WalletProviderId {
+  if (provider.isPhantom) {
+    return "phantom";
   }
 
-  return provider;
+  if (provider.isBraveWallet) {
+    return "brave";
+  }
+
+  return "solana";
+}
+
+function providerLabel(id: WalletProviderId): string {
+  switch (id) {
+    case "phantom":
+      return "Phantom";
+    case "brave":
+      return "Brave";
+    default:
+      return "Injected";
+  }
+}
+
+function compareWallets(left: WalletRecord, right: WalletRecord): number {
+  return WALLET_ORDER.indexOf(left.id) - WALLET_ORDER.indexOf(right.id);
+}
+
+function collectWallets(): WalletRecord[] {
+  const wallets = new Map<WalletProviderId, WalletRecord>();
+
+  const register = (provider: unknown) => {
+    if (!isWalletProvider(provider)) {
+      return;
+    }
+
+    const id = providerId(provider);
+    if (!wallets.has(id)) {
+      wallets.set(id, { id, label: providerLabel(id), provider });
+    }
+  };
+
+  register(window.phantom?.solana);
+  register(window.braveSolana);
+
+  if (Array.isArray(window.solana?.providers)) {
+    window.solana.providers.forEach(register);
+  }
+
+  register(window.solana);
+
+  return Array.from(wallets.values()).sort(compareWallets);
 }
 
 function shortenAddress(value: string | null): string | null {
@@ -61,29 +131,69 @@ function pause(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function readStoredWalletId(): WalletProviderId | null {
+  const stored = window.localStorage.getItem(WALLET_STORAGE_KEY);
+  return WALLET_ORDER.includes(stored as WalletProviderId) ? (stored as WalletProviderId) : null;
+}
+
+function writeStoredWalletId(walletId: WalletProviderId | null) {
+  if (!walletId) {
+    window.localStorage.removeItem(WALLET_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(WALLET_STORAGE_KEY, walletId);
+}
+
+function pickWalletId(wallets: WalletRecord[], preferredId: WalletProviderId | null): WalletProviderId | null {
+  if (preferredId && wallets.some((wallet) => wallet.id === preferredId)) {
+    return preferredId;
+  }
+
+  return wallets[0]?.id ?? null;
+}
+
 export function useSolanaWallet(): SolanaWalletState {
-  const [provider, setProvider] = useState<BrowserWalletAdapter | null>(null);
+  const localhostMode = isLocalhostSession();
+  const [availableWallets, setAvailableWallets] = useState<WalletRecord[]>([]);
+  const [selectedWalletId, setSelectedWalletId] = useState<WalletProviderId | null>(() => readStoredWalletId());
   const [publicKey, setPublicKey] = useState<PublicKey | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const localhostMode = isLocalhostSession();
 
   useEffect(() => {
-    const nextProvider = resolveBrowserWallet();
-    setProvider(nextProvider);
-    setPublicKey(localhostMode ? null : nextProvider?.publicKey ?? null);
+    const discovered = collectWallets();
+    setAvailableWallets(discovered);
+    setSelectedWalletId((current) => pickWalletId(discovered, current ?? readStoredWalletId()));
+  }, []);
 
-    if (!nextProvider) {
-      setError("No Solana wallet detected in this browser.");
+  const selectedWallet = useMemo(
+    () => availableWallets.find((wallet) => wallet.id === selectedWalletId) ?? null,
+    [availableWallets, selectedWalletId]
+  );
+
+  const provider = selectedWallet?.provider ?? null;
+
+  useEffect(() => {
+    writeStoredWalletId(selectedWalletId);
+  }, [selectedWalletId]);
+
+  useEffect(() => {
+    if (!provider) {
+      setPublicKey(null);
+      if (availableWallets.length === 0) {
+        setError("No Solana wallet detected in this browser.");
+      }
       return;
     }
 
+    setPublicKey(localhostMode ? null : provider.publicKey ?? null);
     setError(null);
 
     let cancelled = false;
     const syncPublicKey = (nextPublicKey?: PublicKey | null) => {
       if (!cancelled) {
-        setPublicKey(nextPublicKey ?? nextProvider.publicKey ?? null);
+        setPublicKey(nextPublicKey ?? provider.publicKey ?? null);
       }
     };
 
@@ -93,35 +203,39 @@ export function useSolanaWallet(): SolanaWalletState {
       }
     };
 
-    nextProvider.on?.("connect", syncPublicKey);
-    nextProvider.on?.("accountChanged", syncPublicKey);
-    nextProvider.on?.("disconnect", handleDisconnect);
+    provider.on?.("connect", syncPublicKey);
+    provider.on?.("accountChanged", syncPublicKey);
+    provider.on?.("disconnect", handleDisconnect);
 
     if (!localhostMode) {
-      void nextProvider.connect({ onlyIfTrusted: true }).then((result) => {
+      void provider.connect({ onlyIfTrusted: true }).then((result) => {
         if (!cancelled) {
-          setPublicKey(result?.publicKey ?? nextProvider.publicKey ?? null);
+          setPublicKey(result?.publicKey ?? provider.publicKey ?? null);
         }
       }).catch(() => {
         if (!cancelled) {
-          setPublicKey(nextProvider.publicKey ?? null);
+          setPublicKey(provider.publicKey ?? null);
         }
       });
     }
 
     return () => {
       cancelled = true;
-      nextProvider.off?.("connect", syncPublicKey);
-      nextProvider.off?.("accountChanged", syncPublicKey);
-      nextProvider.off?.("disconnect", handleDisconnect);
+      provider.off?.("connect", syncPublicKey);
+      provider.off?.("accountChanged", syncPublicKey);
+      provider.off?.("disconnect", handleDisconnect);
     };
-  }, [localhostMode]);
+  }, [availableWallets.length, localhostMode, provider]);
 
   const connect = useCallback(async () => {
-    const nextProvider = resolveBrowserWallet();
-    setProvider(nextProvider);
+    const discovered = collectWallets();
+    setAvailableWallets(discovered);
 
-    if (!nextProvider) {
+    const nextWalletId = pickWalletId(discovered, selectedWalletId ?? readStoredWalletId());
+    const nextWallet = discovered.find((wallet) => wallet.id === nextWalletId) ?? null;
+    setSelectedWalletId(nextWalletId);
+
+    if (!nextWallet) {
       setError("No Solana wallet detected. Open Brave Wallet or Phantom and try again.");
       return;
     }
@@ -129,20 +243,24 @@ export function useSolanaWallet(): SolanaWalletState {
     try {
       setConnecting(true);
       setError(null);
-      const result = await nextProvider.connect();
-      setPublicKey(result?.publicKey ?? nextProvider.publicKey ?? null);
+      const result = await nextWallet.provider.connect();
+      setPublicKey(result?.publicKey ?? nextWallet.provider.publicKey ?? null);
     } catch (nextError) {
       setError((nextError as Error).message);
     } finally {
       setConnecting(false);
     }
-  }, []);
+  }, [selectedWalletId]);
 
   const switchWallet = useCallback(async () => {
-    const nextProvider = resolveBrowserWallet();
-    setProvider(nextProvider);
+    const discovered = collectWallets();
+    setAvailableWallets(discovered);
 
-    if (!nextProvider) {
+    const nextWalletId = pickWalletId(discovered, selectedWalletId ?? readStoredWalletId());
+    const nextWallet = discovered.find((wallet) => wallet.id === nextWalletId) ?? null;
+    setSelectedWalletId(nextWalletId);
+
+    if (!nextWallet) {
       setError("No Solana wallet detected. Open Brave Wallet or Phantom and try again.");
       return;
     }
@@ -151,29 +269,42 @@ export function useSolanaWallet(): SolanaWalletState {
       setConnecting(true);
       setError(null);
 
-      if (nextProvider.publicKey || nextProvider.isConnected) {
-        await nextProvider.disconnect().catch(() => undefined);
+      if (nextWallet.provider.publicKey || nextWallet.provider.isConnected) {
+        await nextWallet.provider.disconnect().catch(() => undefined);
         setPublicKey(null);
         await pause(150);
       }
 
-      const result = await nextProvider.connect();
-      setPublicKey(result?.publicKey ?? nextProvider.publicKey ?? null);
+      const result = await nextWallet.provider.connect();
+      setPublicKey(result?.publicKey ?? nextWallet.provider.publicKey ?? null);
     } catch (nextError) {
       setError((nextError as Error).message);
     } finally {
       setConnecting(false);
     }
-  }, []);
+  }, [selectedWalletId]);
+
+  const selectWallet = useCallback(async (walletId: WalletProviderId) => {
+    if (walletId === selectedWalletId) {
+      return;
+    }
+
+    if (provider?.publicKey || provider?.isConnected) {
+      await provider.disconnect().catch(() => undefined);
+    }
+
+    setPublicKey(null);
+    setError(null);
+    setSelectedWalletId(walletId);
+  }, [provider, selectedWalletId]);
 
   const disconnect = useCallback(async () => {
-    const nextProvider = provider ?? resolveBrowserWallet();
-    if (!nextProvider) {
+    if (!provider) {
       return;
     }
 
     try {
-      await nextProvider.disconnect();
+      await provider.disconnect();
       setPublicKey(null);
       setError(null);
     } catch (nextError) {
@@ -192,9 +323,13 @@ export function useSolanaWallet(): SolanaWalletState {
     address,
     shortAddress: shortenAddress(address),
     provider,
+    availableWallets: availableWallets.map(({ id, label }) => ({ id, label })),
+    selectedWalletId,
+    selectedWalletLabel: selectedWallet?.label ?? null,
     error,
     connect,
     switchWallet,
+    selectWallet,
     disconnect,
   };
 }

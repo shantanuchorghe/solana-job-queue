@@ -9,13 +9,14 @@ declare_id!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
 //
 // Each "queue" is a PDA account owned by an authority.
 // Each "job" is its own PDA keyed by (queue_pubkey, job_id).
+// Each "index" is a PDA that tracks job IDs by status for O(1) lookups.
 // Workers are permissioned via on-chain signer checks — no API gateway,
 // no Redis, no message broker. Just accounts and instructions.
 //
 // State Machine:
 //   Pending → Processing → Completed
-//                       ↘ Failed (retries exhausted)
-//                       ↗ Pending (retry with backoff)
+//                        ↘ Failed (retries exhausted)
+//                        ↗ Pending (retry with backoff → delayed index)
 //              Cancelled (authority only)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -32,10 +33,6 @@ pub mod sol_queue {
     use super::*;
 
     /// Initialize a named queue.
-    ///
-    /// Web2: `new Queue('email-jobs', { connection: redisConfig })`
-    /// Solana: Creates a PDA keyed by (authority, queue_name).
-    ///         The queue account stores metadata and a monotonic job counter.
     pub fn initialize_queue(
         ctx: Context<InitializeQueue>,
         queue_name: String,
@@ -65,20 +62,57 @@ pub mod sol_queue {
         Ok(())
     }
 
+    /// Initialize all 6 job index PDAs for a queue.
+    /// Must be called once after initialize_queue, before enqueuing any jobs.
+    pub fn initialize_indexes(ctx: Context<InitializeIndexes>) -> Result<()> {
+        require!(
+            ctx.accounts.authority.key() == ctx.accounts.queue.authority,
+            JobQueueError::Unauthorized
+        );
+
+        let queue_key = ctx.accounts.queue.key();
+
+        let pending = &mut ctx.accounts.pending_index;
+        pending.queue = queue_key;
+        pending.job_ids = Vec::new();
+        pending.bump = ctx.bumps.pending_index;
+
+        let processing = &mut ctx.accounts.processing_index;
+        processing.queue = queue_key;
+        processing.job_ids = Vec::new();
+        processing.bump = ctx.bumps.processing_index;
+
+        let delayed = &mut ctx.accounts.delayed_index;
+        delayed.queue = queue_key;
+        delayed.job_ids = Vec::new();
+        delayed.bump = ctx.bumps.delayed_index;
+
+        let failed = &mut ctx.accounts.failed_index;
+        failed.queue = queue_key;
+        failed.job_ids = Vec::new();
+        failed.bump = ctx.bumps.failed_index;
+
+        let completed = &mut ctx.accounts.completed_index;
+        completed.queue = queue_key;
+        completed.job_ids = Vec::new();
+        completed.bump = ctx.bumps.completed_index;
+
+        let cancelled = &mut ctx.accounts.cancelled_index;
+        cancelled.queue = queue_key;
+        cancelled.job_ids = Vec::new();
+        cancelled.bump = ctx.bumps.cancelled_index;
+
+        Ok(())
+    }
+
     /// Enqueue a job with optional scheduling and priority.
-    ///
-    /// Web2: `await emailQueue.add('send-welcome', { to: 'user@example.com' }, { priority: 1 })`
-    ///       → Redis LPUSH / SQS SendMessage
-    /// Solana: Creates a Job PDA keyed by (queue_pubkey, job_id u64).
-    ///         Payload stored as raw bytes (max 512 bytes).
-    ///         `execute_after` enables cron-style delayed execution
-    ///         without any external scheduler process.
+    /// Atomically pushes the job ID into the pending index.
     pub fn enqueue_job(
         ctx: Context<EnqueueJob>,
         payload: Vec<u8>,
         job_type: String,
-        priority: u8,        // 0=low 1=normal 2=high
-        execute_after: i64,  // Unix ts; 0 = immediate
+        priority: u8,
+        execute_after: i64,
     ) -> Result<()> {
         require!(payload.len() <= 512, JobQueueError::PayloadTooLarge);
         require!(job_type.len() > 0 && job_type.len() <= 32, JobQueueError::NameTooLong);
@@ -120,6 +154,9 @@ pub mod sol_queue {
         job.error_message = None;
         job.bump          = ctx.bumps.job;
 
+        // Atomically add to pending index
+        ctx.accounts.pending_index.push_job(job_id)?;
+
         emit!(JobEnqueued {
             queue: queue.key(),
             job_id,
@@ -133,13 +170,7 @@ pub mod sol_queue {
     }
 
     /// Claim a job — worker atomically locks it for processing.
-    ///
-    /// Web2: `const job = await worker.getNextJob()`
-    ///       → Redis atomic BRPOPLPUSH pending→processing (prevents double-claim)
-    /// Solana: Worker signs the tx. Job status flips Pending → Processing.
-    ///         Worker pubkey is stamped on the job account — no other worker
-    ///         can complete or fail it. Replaces distributed locks entirely.
-    ///         The blockchain itself is the mutex.
+    /// Removes the job ID from pending or delayed index and pushes to processing index.
     pub fn claim_job(ctx: Context<ClaimJob>) -> Result<()> {
         let job   = &mut ctx.accounts.job;
         let clock = Clock::get()?;
@@ -147,14 +178,22 @@ pub mod sol_queue {
         require!(job.status == JobStatus::Pending, JobQueueError::JobNotPending);
         require!(clock.unix_timestamp >= job.execute_after, JobQueueError::JobNotReady);
 
+        let job_id = job.job_id;
+
         job.status     = JobStatus::Processing;
         job.worker     = Some(ctx.accounts.worker.key());
         job.started_at = Some(clock.unix_timestamp);
         job.attempts   = job.attempts.checked_add(1).unwrap_or(u8::MAX);
 
+        // Remove from source index (pending or delayed) and push to processing
+        if ctx.accounts.pending_index.remove_job(job_id).is_err() {
+            ctx.accounts.delayed_index.remove_job(job_id)?;
+        }
+        ctx.accounts.processing_index.push_job(job_id)?;
+
         emit!(JobClaimed {
             queue:      job.queue,
-            job_id:     job.job_id,
+            job_id,
             worker:     ctx.accounts.worker.key(),
             attempt:    job.attempts,
             claimed_at: clock.unix_timestamp,
@@ -164,12 +203,7 @@ pub mod sol_queue {
     }
 
     /// Mark a job as completed and write the result on-chain.
-    ///
-    /// Web2: `await job.moveToCompleted('{"sent":true}', true)`
-    ///       → Redis DEL active:job, ZADD completed:job score=ts
-    /// Solana: Only the claiming worker can call this — enforced by
-    ///         comparing job.worker == signer. Result stored on the
-    ///         job account, readable by anyone, forever, trustlessly.
+    /// Removes from processing index, pushes to completed index.
     pub fn complete_job(
         ctx: Context<CompleteJob>,
         result: Option<String>,
@@ -185,6 +219,8 @@ pub mod sol_queue {
             require!(r.len() <= 128, JobQueueError::ResultTooLarge);
         }
 
+        let job_id = job.job_id;
+
         job.status       = JobStatus::Completed;
         job.completed_at = Some(clock.unix_timestamp);
         job.result       = result.clone();
@@ -194,9 +230,13 @@ pub mod sol_queue {
             .checked_add(1)
             .ok_or(JobQueueError::Overflow)?;
 
+        // Atomically update indexes
+        ctx.accounts.processing_index.remove_job(job_id)?;
+        ctx.accounts.completed_index.push_job(job_id)?;
+
         emit!(JobCompleted {
             queue:        queue.key(),
-            job_id:       job.job_id,
+            job_id,
             worker:       ctx.accounts.worker.key(),
             result,
             completed_at: clock.unix_timestamp,
@@ -206,14 +246,7 @@ pub mod sol_queue {
     }
 
     /// Fail a job — triggers automatic retry with exponential backoff.
-    ///
-    /// Web2: `await job.moveToFailed({ message: 'SMTP timeout' })`
-    ///       → Bull checks attempts < maxRetries, re-queues with delay
-    /// Solana: Identical retry logic, fully on-chain state machine.
-    ///         If attempts < max_retries → status reverts to Pending,
-    ///         execute_after = now + (retry_after * 2^attempt) (backoff).
-    ///         If exhausted → JobStatus::Failed (dead letter queue equivalent).
-    ///         No external scheduler, no Redis TTL, no cron job required.
+    /// Removes from processing index, pushes to delayed (retry) or failed (exhausted) index.
     pub fn fail_job(
         ctx: Context<FailJob>,
         error_message: String,
@@ -227,7 +260,11 @@ pub mod sol_queue {
         require!(job.worker == Some(ctx.accounts.worker.key()), JobQueueError::Unauthorized);
         require!(error_message.len() <= 128, JobQueueError::ResultTooLarge);
 
+        let job_id = job.job_id;
         job.error_message = Some(error_message.clone());
+
+        // Remove from processing index
+        ctx.accounts.processing_index.remove_job(job_id)?;
 
         if job.attempts < job.max_retries {
             // Exponential backoff: base_delay * 2^(attempt - 1)
@@ -242,9 +279,12 @@ pub mod sol_queue {
             job.started_at    = None;
             job.execute_after = clock.unix_timestamp + backoff;
 
+            // Push to delayed index (retried jobs with backoff)
+            ctx.accounts.delayed_index.push_job(job_id)?;
+
             emit!(JobRetrying {
                 queue:    queue.key(),
-                job_id:   job.job_id,
+                job_id,
                 attempt:  job.attempts,
                 retry_at: job.execute_after,
                 error:    error_message,
@@ -259,9 +299,12 @@ pub mod sol_queue {
                 .checked_add(1)
                 .ok_or(JobQueueError::Overflow)?;
 
+            // Push to failed index
+            ctx.accounts.failed_index.push_job(job_id)?;
+
             emit!(JobFailed {
                 queue:     queue.key(),
-                job_id:    job.job_id,
+                job_id,
                 attempts:  job.attempts,
                 error:     error_message,
                 failed_at: clock.unix_timestamp,
@@ -272,11 +315,7 @@ pub mod sol_queue {
     }
 
     /// Cancel a pending or processing job (queue authority only).
-    ///
-    /// Web2: `await queue.remove(jobId)` — Redis DEL + LREM
-    /// Solana: Authority-gated cancel. Only queue.authority can cancel.
-    ///         This is analogous to an admin console "remove job" action,
-    ///         enforced cryptographically — no admin password needed.
+    /// Removes from the appropriate source index, pushes to cancelled index.
     pub fn cancel_job(ctx: Context<CancelJob>) -> Result<()> {
         let clock = Clock::get()?;
         let queue = &mut ctx.accounts.queue;
@@ -288,13 +327,27 @@ pub mod sol_queue {
             JobQueueError::CannotCancel
         );
 
+        let job_id = job.job_id;
+
+        // Remove from the appropriate source index based on current status
+        if job.status == JobStatus::Pending {
+            if ctx.accounts.pending_index.remove_job(job_id).is_err() {
+                ctx.accounts.delayed_index.remove_job(job_id)?;
+            }
+        } else {
+            ctx.accounts.processing_index.remove_job(job_id)?;
+        }
+
         job.status       = JobStatus::Cancelled;
         job.completed_at = Some(clock.unix_timestamp);
         queue.pending_count = queue.pending_count.saturating_sub(1);
 
+        // Push to cancelled index
+        ctx.accounts.cancelled_index.push_job(job_id)?;
+
         emit!(JobCancelled {
             queue:        queue.key(),
-            job_id:       job.job_id,
+            job_id,
             cancelled_by: ctx.accounts.authority.key(),
             cancelled_at: clock.unix_timestamp,
         });
@@ -303,11 +356,6 @@ pub mod sol_queue {
     }
 
     /// Pause or resume a queue.
-    ///
-    /// Web2: `await queue.pause()` / `await queue.resume()`
-    ///       → Bull sets queue:paused = 1 in Redis
-    /// Solana: Single boolean on queue PDA. Checked atomically in enqueue_job.
-    ///         Workers should check queue.paused before claim_job off-chain.
     pub fn set_queue_paused(
         ctx: Context<SetQueuePaused>,
         paused: bool,
@@ -349,6 +397,70 @@ pub struct InitializeQueue<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeIndexes<'info> {
+    pub queue: Account<'info, Queue>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = JobIndex::SPACE,
+        seeds = [b"index", queue.key().as_ref(), INDEX_PENDING],
+        bump
+    )]
+    pub pending_index: Account<'info, JobIndex>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = JobIndex::SPACE,
+        seeds = [b"index", queue.key().as_ref(), INDEX_PROCESSING],
+        bump
+    )]
+    pub processing_index: Account<'info, JobIndex>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = JobIndex::SPACE,
+        seeds = [b"index", queue.key().as_ref(), INDEX_DELAYED],
+        bump
+    )]
+    pub delayed_index: Account<'info, JobIndex>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = JobIndex::SPACE,
+        seeds = [b"index", queue.key().as_ref(), INDEX_FAILED],
+        bump
+    )]
+    pub failed_index: Account<'info, JobIndex>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = JobIndex::SPACE,
+        seeds = [b"index", queue.key().as_ref(), INDEX_COMPLETED],
+        bump
+    )]
+    pub completed_index: Account<'info, JobIndex>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = JobIndex::SPACE,
+        seeds = [b"index", queue.key().as_ref(), INDEX_CANCELLED],
+        bump
+    )]
+    pub cancelled_index: Account<'info, JobIndex>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct EnqueueJob<'info> {
     #[account(mut)]
     pub queue: Account<'info, Queue>,
@@ -362,6 +474,13 @@ pub struct EnqueueJob<'info> {
     )]
     pub job: Account<'info, Job>,
 
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_PENDING],
+        bump = pending_index.bump
+    )]
+    pub pending_index: Account<'info, JobIndex>,
+
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -374,6 +493,27 @@ pub struct ClaimJob<'info> {
     pub job: Account<'info, Job>,
 
     pub worker: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"index", job.queue.as_ref(), INDEX_PENDING],
+        bump = pending_index.bump
+    )]
+    pub pending_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", job.queue.as_ref(), INDEX_DELAYED],
+        bump = delayed_index.bump
+    )]
+    pub delayed_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", job.queue.as_ref(), INDEX_PROCESSING],
+        bump = processing_index.bump
+    )]
+    pub processing_index: Account<'info, JobIndex>,
 }
 
 #[derive(Accounts)]
@@ -385,6 +525,20 @@ pub struct CompleteJob<'info> {
     pub job: Account<'info, Job>,
 
     pub worker: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_PROCESSING],
+        bump = processing_index.bump
+    )]
+    pub processing_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_COMPLETED],
+        bump = completed_index.bump
+    )]
+    pub completed_index: Account<'info, JobIndex>,
 }
 
 #[derive(Accounts)]
@@ -396,6 +550,27 @@ pub struct FailJob<'info> {
     pub job: Account<'info, Job>,
 
     pub worker: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_PROCESSING],
+        bump = processing_index.bump
+    )]
+    pub processing_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_DELAYED],
+        bump = delayed_index.bump
+    )]
+    pub delayed_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_FAILED],
+        bump = failed_index.bump
+    )]
+    pub failed_index: Account<'info, JobIndex>,
 }
 
 #[derive(Accounts)]
@@ -407,6 +582,34 @@ pub struct CancelJob<'info> {
     pub job: Account<'info, Job>,
 
     pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_PENDING],
+        bump = pending_index.bump
+    )]
+    pub pending_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_DELAYED],
+        bump = delayed_index.bump
+    )]
+    pub delayed_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_PROCESSING],
+        bump = processing_index.bump
+    )]
+    pub processing_index: Account<'info, JobIndex>,
+
+    #[account(
+        mut,
+        seeds = [b"index", queue.key().as_ref(), INDEX_CANCELLED],
+        bump = cancelled_index.bump
+    )]
+    pub cancelled_index: Account<'info, JobIndex>,
 }
 
 #[derive(Accounts)]
