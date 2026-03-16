@@ -27,8 +27,47 @@ Configured program ID: `BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas`
 - Wallet-based job creation from the React dashboard (Phantom / Brave wallet support)
 - Live event subscriptions via `program.addEventListener`
 
-## Repo Layout
+## Architecture & Design Analysis
 
+This project translates a traditional Web2 backend job queue (like BullMQ, Celery, or AWS SQS) into Solana's on-chain account model.
+
+### 1. System Architecture: Web2 vs Solana
+
+**Web2 Approach (BullMQ + Redis):**
+- **Storage**: Jobs and queues are `Hashes` and `Lists` stored in-memory in a Redis cluster.
+- **Workflow**: Producers push items (`LPUSH`); a Worker process continuously polls or blocks (`BRPOPLPUSH`) to claim items; if successful, it deletes the item.
+- **State/Locks**: The worker runtime acts as a single point of truth using distributed Redis locks to ensure jobs aren't claimed twice.
+
+**Solana Approach (SolQueue):**
+- **Storage**: Jobs and Queues are durable, Program Derived Address (PDA) accounts on-chain. Job Index accounts group job IDs by state.
+- **Workflow**: Producers broadcast `enqueue_job` signed transactions to the network. Workers broadcast `claim_job` transactions.
+- **State/Locks**: The blockchain validates state transitions via the Anchor program logic. The "mutex" is the atomic execution of the transaction itself. There is no central orchestrator API.
+
+### 2. State Machine & Account Modeling
+
+Instead of ephemeral records constantly created and destroyed (like Redis entries), Solana job accounts act as **permanent audit records** on-chain.
+
+- **Queue PDA**: `[b"queue", authority_pubkey, name]` — holds aggregate statistics and limits.
+- **Job PDA**: `[b"job", queue_pubkey, job_id]` — holds the immutable JSON payload, lifecycle state (Pending → Processing → Completed/Failed/Cancelled), retry attempts, and the final trace output/error.
+- **Index PDAs (x6)**: `[b"index", queue_pubkey, state_type]` — Deterministic indexes (like pending, delayed, Processing) holding arrays of `job_id` integers. This prevents workers from calling expensive `getProgramAccounts` RPC methods to scan the whole blockchain — they simply read the `pending_index` account (O(1) lookup).
+
+### 3. Tradeoffs & Constraints
+
+- **Latency vs Immutability**: Redis handles enqueues in <1ms. Solana handles them in ~400ms (block finality). The tradeoff is that the Solana queue is fully public, auditable, and immutable by default.
+- **Compute constraints**: On-chain logic has a 200k Compute Unit limit. Payload sizes are therefore strictly capped at 512 bytes (JSON or Borsh data), and Job Indexes are hard-capped at 256 active jobs inside a specific index (to fit into a ~2kb PDA safely). 
+- **Time precision**: Solana programs check time against `Clock::get()?.unix_timestamp` which updates per block/slot (12-15 seconds accuracy or less depending on network instability), meaning delayed scheduling acts on a macro-level precision rather than millisecond precision.
+- **Cost**: Web2 queues charge for monthly server instances. SolQueue charges per job via rent-exemption (~0.003 SOL) and transaction fees.
+
+### 4. Devnet Transactions (Demo Flow)
+
+> _Note to judges: Here are live interaction links on Devnet:_
+
+- **Program ID**: [`BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas`](https://explorer.solana.com/address/BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas?cluster=devnet)
+- **Queue Creation TX**: `[INSERT_DEVNET_DEPLOY_LINK_HERE]`
+- **Enqueue Job TX**: `[INSERT_ENQUEUE_TX_HERE]`
+- **Claim & Complete Job TX**: `[INSERT_COMPLETE_TX_HERE]`
+
+## Repo Layout
 ```text
 program/   Anchor program (Rust)
 shared/    Shared TypeScript utilities (PDA derivation, types, enqueue logic)
