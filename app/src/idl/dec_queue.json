@@ -8,11 +8,84 @@
   },
   "instructions": [
     {
-      "name": "cancel_job",
-      "docs": [
-        "Cancel a pending or processing job (queue authority only).",
-        "Removes from the appropriate source index, pushes to cancelled index."
+      "name": "advance_head",
+      "discriminator": [
+        100,
+        7,
+        98,
+        197,
+        138,
+        87,
+        255,
+        23
       ],
+      "accounts": [
+        {
+          "name": "queue_head",
+          "docs": [
+            "The linked-list head â€” head_index_seq will be incremented."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  101,
+                  117,
+                  101,
+                  95,
+                  104,
+                  101,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "head_page.queue",
+                "account": "JobIndex"
+              }
+            ]
+          }
+        },
+        {
+          "name": "head_page",
+          "docs": [
+            "The current (empty) head page."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "head_page.queue",
+                "account": "JobIndex"
+              },
+              {
+                "kind": "account",
+                "path": "queue_head.head_index_seq",
+                "account": "QueueHead"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_job",
       "discriminator": [
         126,
         241,
@@ -40,155 +113,17 @@
           "signer": true
         },
         {
-          "name": "pending_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  110,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "delayed_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  97,
-                  121,
-                  101,
-                  100
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "processing_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  99,
-                  101,
-                  115,
-                  115,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "cancelled_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  97,
-                  110,
-                  99,
-                  101,
-                  108,
-                  108,
-                  101,
-                  100
-                ]
-              }
-            ]
-          }
+          "name": "source_index_page",
+          "docs": [
+            "The index page currently holding this job_id."
+          ],
+          "writable": true
         }
       ],
       "args": []
     },
     {
       "name": "claim_job",
-      "docs": [
-        "Claim a job — worker atomically locks it for processing.",
-        "Removes the job ID from pending or delayed index and pushes to processing index."
-      ],
       "discriminator": [
         9,
         160,
@@ -209,122 +144,18 @@
           "signer": true
         },
         {
-          "name": "pending_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "job.queue",
-                "account": "Job"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  110,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "delayed_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "job.queue",
-                "account": "Job"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  97,
-                  121,
-                  101,
-                  100
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "processing_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "job.queue",
-                "account": "Job"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  99,
-                  101,
-                  115,
-                  115,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
+          "name": "source_index_page",
+          "docs": [
+            "The index page that currently contains this job_id.",
+            "Verified by seed â€” callers compute [b\"index\", job.queue, page_seq.to_le_bytes()]."
+          ],
+          "writable": true
         }
       ],
       "args": []
     },
     {
       "name": "complete_job",
-      "docs": [
-        "Mark a job as completed and write the result on-chain.",
-        "Removes from processing index, pushes to completed index."
-      ],
       "discriminator": [
         221,
         216,
@@ -350,79 +181,6 @@
         {
           "name": "worker",
           "signer": true
-        },
-        {
-          "name": "processing_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  99,
-                  101,
-                  115,
-                  115,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "completed_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  109,
-                  112,
-                  108,
-                  101,
-                  116,
-                  101,
-                  100
-                ]
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -436,10 +194,6 @@
     },
     {
       "name": "enqueue_job",
-      "docs": [
-        "Enqueue a job with optional scheduling and priority.",
-        "Atomically pushes the job ID into the pending index."
-      ],
       "discriminator": [
         15,
         126,
@@ -457,6 +211,9 @@
         },
         {
           "name": "job",
+          "docs": [
+            "Job PDA keyed by (queue, job_count) â€” job_count is captured before increment."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -481,7 +238,41 @@
           }
         },
         {
-          "name": "pending_index",
+          "name": "queue_head",
+          "docs": [
+            "QueueHead â€” needed to increment total_jobs."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  101,
+                  117,
+                  101,
+                  95,
+                  104,
+                  101,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tail_index_page",
+          "docs": [
+            "The current tail index page â€” job_id is appended here.",
+            "The caller derives: seq = queue_head.tail_index_seq"
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -500,16 +291,9 @@
                 "path": "queue"
               },
               {
-                "kind": "const",
-                "value": [
-                  112,
-                  101,
-                  110,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
+                "kind": "account",
+                "path": "queue_head.tail_index_seq",
+                "account": "QueueHead"
               }
             ]
           }
@@ -545,10 +329,6 @@
     },
     {
       "name": "fail_job",
-      "docs": [
-        "Fail a job — triggers automatic retry with exponential backoff.",
-        "Removes from processing index, pushes to delayed (retry) or failed (exhausted) index."
-      ],
       "discriminator": [
         211,
         222,
@@ -576,108 +356,12 @@
           "signer": true
         },
         {
-          "name": "processing_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  99,
-                  101,
-                  115,
-                  115,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "delayed_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
-                  97,
-                  121,
-                  101,
-                  100
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "failed_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  97,
-                  105,
-                  108,
-                  101,
-                  100
-                ]
-              }
-            ]
-          }
+          "name": "retry_index_page",
+          "docs": [
+            "The index page to push the retried job_id into (tail page of a retry queue,",
+            "or any page with remaining capacity that the caller designates)."
+          ],
+          "writable": true
         }
       ],
       "args": [
@@ -692,132 +376,57 @@
       ]
     },
     {
-      "name": "initialize_indexes",
-      "docs": [
-        "Initialize all 6 job index PDAs for a queue.",
-        "Must be called once after initialize_queue, before enqueuing any jobs."
-      ],
+      "name": "grow_index",
       "discriminator": [
-        24,
-        99,
-        43,
-        75,
-        143,
-        230,
-        84,
-        176
+        222,
+        32,
+        78,
+        153,
+        148,
+        86,
+        108,
+        168
       ],
       "accounts": [
         {
           "name": "queue"
         },
         {
-          "name": "pending_index",
+          "name": "queue_head",
+          "docs": [
+            "The linked-list head PDA â€” tail_index_seq will be incremented here."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  105,
-                  110,
-                  100,
+                  113,
+                  117,
                   101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
+                  117,
                   101,
-                  110,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "processing_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
+                  95,
+                  104,
                   101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  99,
-                  101,
-                  115,
-                  115,
-                  105,
-                  110,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "delayed_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  101,
-                  108,
                   97,
-                  121,
-                  101,
                   100
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
               }
             ]
           }
         },
         {
-          "name": "failed_index",
+          "name": "current_tail_page",
+          "docs": [
+            "The current (full) tail page.",
+            "Seeds use queue_head.tail_index_seq before increment."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -836,21 +445,18 @@
                 "path": "queue"
               },
               {
-                "kind": "const",
-                "value": [
-                  102,
-                  97,
-                  105,
-                  108,
-                  101,
-                  100
-                ]
+                "kind": "account",
+                "path": "queue_head.tail_index_seq",
+                "account": "QueueHead"
               }
             ]
           }
         },
         {
-          "name": "completed_index",
+          "name": "new_tail_page",
+          "docs": [
+            "The new tail page. Seeds use the new_seq instruction argument."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -869,54 +475,8 @@
                 "path": "queue"
               },
               {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  109,
-                  112,
-                  108,
-                  101,
-                  116,
-                  101,
-                  100
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "cancelled_index",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  100,
-                  101,
-                  120
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  97,
-                  110,
-                  99,
-                  101,
-                  108,
-                  108,
-                  101,
-                  100
-                ]
+                "kind": "arg",
+                "path": "new_seq"
               }
             ]
           }
@@ -931,13 +491,15 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "new_seq",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "initialize_queue",
-      "docs": [
-        "Initialize a named queue."
-      ],
       "discriminator": [
         174,
         102,
@@ -951,6 +513,10 @@
       "accounts": [
         {
           "name": "queue",
+          "docs": [
+            "The core queue metadata account.",
+            "Seeds: [b\"queue\", authority, name]"
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -971,6 +537,76 @@
               {
                 "kind": "arg",
                 "path": "queue_name"
+              }
+            ]
+          }
+        },
+        {
+          "name": "queue_head",
+          "docs": [
+            "Linked-list head: tracks head_seq, tail_seq, total_jobs.",
+            "Seeds: [b\"queue_head\", queue]"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  101,
+                  117,
+                  101,
+                  95,
+                  104,
+                  101,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              }
+            ]
+          }
+        },
+        {
+          "name": "first_index_page",
+          "docs": [
+            "The very first index page (seq = 0).",
+            "Seeds: [b\"index\", queue, 0u64.to_le_bytes()]"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
               }
             ]
           }
@@ -998,9 +634,6 @@
     },
     {
       "name": "set_queue_paused",
-      "docs": [
-        "Pause or resume a queue."
-      ],
       "discriminator": [
         75,
         37,
@@ -1067,6 +700,19 @@
         33,
         2,
         188
+      ]
+    },
+    {
+      "name": "QueueHead",
+      "discriminator": [
+        252,
+        245,
+        9,
+        149,
+        18,
+        35,
+        210,
+        142
       ]
     }
   ],
@@ -1251,6 +897,36 @@
       "code": 6014,
       "name": "JobNotInIndex",
       "msg": "Job ID was not found in the specified index"
+    },
+    {
+      "code": 6015,
+      "name": "IndexNotFull",
+      "msg": "grow_index called but the tail page is not yet full"
+    },
+    {
+      "code": 6016,
+      "name": "HeadPageNotEmpty",
+      "msg": "advance_head called but the head page still contains jobs"
+    },
+    {
+      "code": 6017,
+      "name": "NoSuccessorPage",
+      "msg": "No successor page exists — head and tail are the same page"
+    },
+    {
+      "code": 6018,
+      "name": "QueueMismatch",
+      "msg": "Index page belongs to a different queue than the job"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidCompressedJobData",
+      "msg": "Failed to deserialize compressed job_data bytes"
+    },
+    {
+      "code": 6020,
+      "name": "CompressedCpiFailed",
+      "msg": "Light System Program CPI failed — proof invalid or account mismatch"
     }
   ],
   "types": [
@@ -1303,7 +979,7 @@
           {
             "name": "priority",
             "docs": [
-              "0=low, 1=normal, 2=high — workers can fetch by priority off-chain"
+              "0=low, 1=normal, 2=high"
             ],
             "type": "u8"
           },
@@ -1540,14 +1216,30 @@
           {
             "name": "queue",
             "docs": [
-              "The queue this index belongs to"
+              "The queue this page belongs to (safety back-reference)"
             ],
             "type": "pubkey"
           },
           {
+            "name": "seq",
+            "docs": [
+              "Sequence number of this page within the linked list.",
+              "Also encodes into the PDA seed so every page has a unique address."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "next_seq",
+            "docs": [
+              "Next page's sequence number (0 means \"no next page yet\").",
+              "Set when the producer creates a successor page via grow_index."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "job_ids",
             "docs": [
-              "Job IDs currently tracked by this index"
+              "Job IDs stored in this page. Unordered; removal is O(1) swap_remove."
             ],
             "type": {
               "vec": "u64"
@@ -1636,8 +1328,8 @@
           {
             "name": "job_count",
             "docs": [
-              "Monotonically increasing counter — used as job PDA seed",
-              "Never decrements, so job PDAs are always derivable from (queue, id)"
+              "Monotonically increasing counter — used as job PDA seed.",
+              "Never decrements, so job PDAs are always derivable from (queue, id)."
             ],
             "type": "u64"
           },
@@ -1709,6 +1401,52 @@
           {
             "name": "timestamp",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QueueHead",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "The queue this head belongs to (back-reference for safety checks)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "head_index_seq",
+            "docs": [
+              "Sequence number of the oldest (head) JobIndex page.",
+              "Workers always read this page first."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tail_index_seq",
+            "docs": [
+              "Sequence number of the newest (tail) JobIndex page.",
+              "Producers append to this page; when it fills, a new page is allocated."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_jobs",
+            "docs": [
+              "Total number of job IDs tracked across ALL pages in this linked list.",
+              "Does not decrement when jobs are removed; use it for analytics only."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
           }
         ]
       }
