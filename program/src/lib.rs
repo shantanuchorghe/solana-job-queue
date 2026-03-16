@@ -1,8 +1,8 @@
-use anchor_lang::prelude::*;
+﻿use anchor_lang::prelude::*;
 
-// ── ZK Compression SDK imports ────────────────────────────────────────────────
+// â”€â”€ ZK Compression SDK imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Active only when compiled with: --features zk-compression
-// (blocked on anchor-lang 0.30.1 / solana-instruction version conflict —
+// (blocked on anchor-lang 0.30.1 / solana-instruction version conflict â€”
 //  see program/Cargo.toml for full explanation)
 #[cfg(feature = "zk-compression")]
 use light_sdk::{
@@ -13,14 +13,14 @@ use light_sdk::{
 
 declare_id!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
 
-// ── Register this program with the Light System Program ───────────────────────
+// â”€â”€ Register this program with the Light System Program â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The derive_light_cpi_signer! macro generates LIGHT_CPI_SIGNER: CpiSigner,
 // a constant PDA proving to the Light System Program that CPIs originate here.
 #[cfg(feature = "zk-compression")]
 derive_light_cpi_signer!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SolQueue — On-Chain Job Queue Program
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// SolQueue â€” On-Chain Job Queue Program
 //
 // Web2 equivalent: Bull/BullMQ (Redis), AWS SQS, Celery + RabbitMQ
 //
@@ -31,22 +31,22 @@ derive_light_cpi_signer!("BuG2BPUX7iFZ34Q7yEiFdAdFifXmkr4of1AvLtmnBpas");
 //   which page to read without enumerating accounts.
 //
 // State Machine:
-//   Pending → Processing → Completed
-//                        ↘ Failed (retries exhausted)
-//                        ↗ Pending (retry with backoff, re-inserted into page)
+//   Pending â†’ Processing â†’ Completed
+//                        â†˜ Failed (retries exhausted)
+//                        â†— Pending (retry with backoff, re-inserted into page)
 //              Cancelled (authority only)
 //
 // Index linked-list:
 //   QueueHead { head_seq, tail_seq, total_jobs }
-//        │
-//        ├── JobIndex { seq=0, next_seq=1, job_ids=[...] }
-//        │         ↓
-//        └── JobIndex { seq=1, next_seq=0 (=tail), job_ids=[...] }
+//        â”‚
+//        â”œâ”€â”€ JobIndex { seq=0, next_seq=1, job_ids=[...] }
+//        â”‚         â†“
+//        â””â”€â”€ JobIndex { seq=1, next_seq=0 (=tail), job_ids=[...] }
 //
 //   Producers append to tail_index_seq page; workers dequeue from head_index_seq.
-//   When tail is full → grow_index creates seq+1 and advances tail.
-//   When head empties  → advance_head increments head_seq (page is drained).
-// ─────────────────────────────────────────────────────────────────────────────
+//   When tail is full â†’ grow_index creates seq+1 and advances tail.
+//   When head empties  â†’ advance_head increments head_seq (page is drained).
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 pub mod errors;
 pub mod state;
@@ -60,21 +60,21 @@ use events::*;
 pub mod sol_queue {
     use super::*;
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // initialize_queue
     //
-    // Web2: `new Bull.Queue('name', { redis })` —  creates the queue in Redis
+    // Web2: `new Bull.Queue('name', { redis })` â€”  creates the queue in Redis
     //       memory and optionally registers it in a supervisor.
     //
     // Solana: Creates THREE accounts atomically in a single transaction:
-    //   1. Queue   PDA  — metadata + aggregate stats
-    //   2. QueueHead PDA — linked-list pointers (head_seq=0, tail_seq=0)
-    //   3. JobIndex PDA at seq=0 — the first (and initially only) index page
+    //   1. Queue   PDA  â€” metadata + aggregate stats
+    //   2. QueueHead PDA â€” linked-list pointers (head_seq=0, tail_seq=0)
+    //   3. JobIndex PDA at seq=0 â€” the first (and initially only) index page
     //
     // All three are rent-exempt and payer-funded via Anchor `init` constraints.
     // After this call the queue is immediately usable; no follow-up
     // `initialize_indexes` transaction is required.
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn initialize_queue(
         ctx: Context<InitializeQueue>,
         queue_name: String,
@@ -89,7 +89,7 @@ pub mod sol_queue {
         let clock = Clock::get()?;
         let queue_key = ctx.accounts.queue.key();
 
-        // ── 1. Write Queue metadata ──────────────────────────────────────────
+        // â”€â”€ 1. Write Queue metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let queue = &mut ctx.accounts.queue;
         queue.authority       = ctx.accounts.authority.key();
         queue.name            = queue_name.clone();
@@ -102,11 +102,11 @@ pub mod sol_queue {
         queue.created_at      = clock.unix_timestamp;
         queue.bump            = ctx.bumps.queue;
 
-        // ── 2. Write QueueHead — linked-list entry point ─────────────────────
+        // â”€â”€ 2. Write QueueHead â€” linked-list entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         //
-        // head_index_seq = 0  ← workers start reading from page 0
-        // tail_index_seq = 0  ← producers append to page 0 initially
-        // total_jobs     = 0  ← no jobs yet
+        // head_index_seq = 0  â† workers start reading from page 0
+        // tail_index_seq = 0  â† producers append to page 0 initially
+        // total_jobs     = 0  â† no jobs yet
         //
         // When page 0 fills up, `grow_index` creates page 1 and sets
         // tail_index_seq = 1. When page 0 drains, `advance_head` moves
@@ -118,7 +118,7 @@ pub mod sol_queue {
         head.total_jobs     = 0;
         head.bump           = ctx.bumps.queue_head;
 
-        // ── 3. Write first JobIndex page (seq = 0) ───────────────────────────
+        // â”€â”€ 3. Write first JobIndex page (seq = 0) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         //
         // PDA seeds: [b"index", queue_pubkey, 0u64.to_le_bytes()]
         // This is the initial head AND tail page of the linked list.
@@ -140,10 +140,10 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // grow_index
     //
-    // Web2 equivalent: Kafka segment roll — when a log segment reaches its size
+    // Web2 equivalent: Kafka segment roll â€” when a log segment reaches its size
     //   limit, the broker creates a new one and advances the active-segment pointer.
     //
     // Solana: When the tail JobIndex page is full the producer (or anyone)
@@ -155,7 +155,7 @@ pub mod sol_queue {
     // This must be called BEFORE enqueue_job when the tail page is full.
     // The off-chain client checks `tail_page.is_full()` and calls grow_index
     // proactively.
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn grow_index(ctx: Context<GrowIndex>, new_seq: u64) -> Result<()> {
         require!(
             ctx.accounts.authority.key() == ctx.accounts.queue.authority,
@@ -183,7 +183,7 @@ pub mod sol_queue {
         let new_page = &mut ctx.accounts.new_tail_page;
         new_page.queue    = ctx.accounts.queue.key();
         new_page.seq      = new_seq;
-        new_page.next_seq = 0; // new tail — no successor yet
+        new_page.next_seq = 0; // new tail â€” no successor yet
         new_page.job_ids  = Vec::new();
         new_page.bump     = ctx.bumps.new_tail_page;
 
@@ -193,7 +193,7 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // advance_head
     //
     // Web2 equivalent: Advancing a consumer group's committed offset past a
@@ -202,9 +202,9 @@ pub mod sol_queue {
     // Solana: Called when the head JobIndex page is empty.
     //   Moves QueueHead.head_index_seq forward by one (to next_seq on the page).
     //   The old head page remains on-chain as an immutable audit record.
-    //   Callers may optionally close it to reclaim rent — not done here to
+    //   Callers may optionally close it to reclaim rent â€” not done here to
     //   preserve the full history.
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn advance_head(ctx: Context<AdvanceHead>) -> Result<()> {
         let head_page = &ctx.accounts.head_page;
 
@@ -223,16 +223,16 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // enqueue_job
     //
-    // Web2: `queue.add('send-email', { to: '...' })` — adds a job record to
+    // Web2: `queue.add('send-email', { to: '...' })` â€” adds a job record to
     //   Redis and pushes its ID into the "wait" list.
     //
     // Solana: Creates a Job PDA and appends its job_id to the current tail
-    //   JobIndex page — both happen in the same atomic transaction.
+    //   JobIndex page â€” both happen in the same atomic transaction.
     //   QueueHead.total_jobs is also incremented.
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn enqueue_job(
         ctx: Context<EnqueueJob>,
         payload: Vec<u8>,
@@ -248,7 +248,7 @@ pub mod sol_queue {
         require!(priority <= 2, JobQueueError::InvalidPriority);
         require!(!ctx.accounts.queue.paused, JobQueueError::QueuePaused);
 
-        // Tail page must have room — caller should call grow_index first if full
+        // Tail page must have room â€” caller should call grow_index first if full
         require!(
             !ctx.accounts.tail_index_page.is_full(),
             JobQueueError::IndexFull
@@ -310,18 +310,18 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // claim_job
     //
-    // Web2: Bull's `BRPOPLPUSH wait active` — atomically moves a job from the
+    // Web2: Bull's `BRPOPLPUSH wait active` â€” atomically moves a job from the
     //   "wait" list to the "active" set, locking it for a specific worker.
     //
     // Solana: The transaction IS the atomic lock. Two workers submitting a
     //   claim_job for the same job at the same slot will conflict on account
-    //   write-locks — only one will succeed. The source_page is the page
+    //   write-locks â€” only one will succeed. The source_page is the page
     //   currently holding the job ID; the caller derives it off-chain from
     //   QueueHead + page traversal.
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn claim_job(ctx: Context<ClaimJob>) -> Result<()> {
         let job   = &mut ctx.accounts.job;
         let clock = Clock::get()?;
@@ -353,9 +353,9 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // complete_job
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn complete_job(
         ctx: Context<CompleteJob>,
         result: Option<String>,
@@ -394,9 +394,9 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // fail_job
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn fail_job(
         ctx: Context<FailJob>,
         error_message: String,
@@ -439,7 +439,7 @@ pub mod sol_queue {
                 error:    error_message,
             });
         } else {
-            // Exhausted → Dead Letter
+            // Exhausted â†’ Dead Letter
             job.status       = JobStatus::Failed;
             job.completed_at = Some(clock.unix_timestamp);
 
@@ -460,9 +460,9 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // cancel_job
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn cancel_job(ctx: Context<CancelJob>) -> Result<()> {
         let clock = Clock::get()?;
         let queue = &mut ctx.accounts.queue;
@@ -496,9 +496,9 @@ pub mod sol_queue {
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // set_queue_paused
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     pub fn set_queue_paused(
         ctx: Context<SetQueuePaused>,
         paused: bool,
@@ -519,9 +519,9 @@ pub mod sol_queue {
     }
 }
 
-// ─── Account Validation Contexts ─────────────────────────────────────────────
+// â”€â”€â”€ Account Validation Contexts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/// initialize_queue — creates Queue, QueueHead, and first JobIndex page (seq=0)
+/// initialize_queue â€” creates Queue, QueueHead, and first JobIndex page (seq=0)
 /// in one atomic transaction.
 #[derive(Accounts)]
 #[instruction(queue_name: String)]
@@ -565,14 +565,14 @@ pub struct InitializeQueue<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// grow_index — allocates a new tail page when the current tail is full.
+/// grow_index â€” allocates a new tail page when the current tail is full.
 /// `new_seq` must equal queue_head.tail_index_seq + 1 (enforced on-chain).
 #[derive(Accounts)]
 #[instruction(new_seq: u64)]
 pub struct GrowIndex<'info> {
     pub queue: Account<'info, Queue>,
 
-    /// The linked-list head PDA — tail_index_seq will be incremented here.
+    /// The linked-list head PDA â€” tail_index_seq will be incremented here.
     #[account(
         mut,
         seeds = [b"queue_head", queue.key().as_ref()],
@@ -605,10 +605,10 @@ pub struct GrowIndex<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// advance_head — moves head_index_seq forward when head page is empty.
+/// advance_head â€” moves head_index_seq forward when head page is empty.
 #[derive(Accounts)]
 pub struct AdvanceHead<'info> {
-    /// The linked-list head — head_index_seq will be incremented.
+    /// The linked-list head â€” head_index_seq will be incremented.
     #[account(
         mut,
         seeds = [b"queue_head", head_page.queue.as_ref()],
@@ -624,13 +624,13 @@ pub struct AdvanceHead<'info> {
     pub head_page: Account<'info, JobIndex>,
 }
 
-/// enqueue_job — creates a Job and appends its ID to the tail index page.
+/// enqueue_job â€” creates a Job and appends its ID to the tail index page.
 #[derive(Accounts)]
 pub struct EnqueueJob<'info> {
     #[account(mut)]
     pub queue: Account<'info, Queue>,
 
-    /// Job PDA keyed by (queue, job_count) — job_count is captured before increment.
+    /// Job PDA keyed by (queue, job_count) â€” job_count is captured before increment.
     #[account(
         init,
         payer = payer,
@@ -640,7 +640,7 @@ pub struct EnqueueJob<'info> {
     )]
     pub job: Account<'info, Job>,
 
-    /// QueueHead — needed to increment total_jobs.
+    /// QueueHead â€” needed to increment total_jobs.
     #[account(
         mut,
         seeds = [b"queue_head", queue.key().as_ref()],
@@ -648,7 +648,7 @@ pub struct EnqueueJob<'info> {
     )]
     pub queue_head: Account<'info, QueueHead>,
 
-    /// The current tail index page — job_id is appended here.
+    /// The current tail index page â€” job_id is appended here.
     /// The caller derives: seq = queue_head.tail_index_seq
     #[account(
         mut,
@@ -663,7 +663,7 @@ pub struct EnqueueJob<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// claim_job — locks a job for processing; removes ID from its source index page.
+/// claim_job â€” locks a job for processing; removes ID from its source index page.
 ///
 /// The caller must determine which page currently holds this job_id and pass
 /// that page as `source_index_page`. Typically this is the head page of the
@@ -676,7 +676,7 @@ pub struct ClaimJob<'info> {
     pub worker: Signer<'info>,
 
     /// The index page that currently contains this job_id.
-    /// Verified by seed — callers compute [b"index", job.queue, page_seq.to_le_bytes()].
+    /// Verified by seed â€” callers compute [b"index", job.queue, page_seq.to_le_bytes()].
     #[account(
         mut,
         constraint = source_index_page.queue == job.queue
@@ -685,7 +685,7 @@ pub struct ClaimJob<'info> {
     pub source_index_page: Account<'info, JobIndex>,
 }
 
-/// complete_job — marks a job completed; no index mutation needed
+/// complete_job â€” marks a job completed; no index mutation needed
 /// (the job was already removed from its source page on claim_job).
 #[derive(Accounts)]
 pub struct CompleteJob<'info> {
@@ -698,7 +698,7 @@ pub struct CompleteJob<'info> {
     pub worker: Signer<'info>,
 }
 
-/// fail_job — on retry, re-inserts job_id into a retry index page.
+/// fail_job â€” on retry, re-inserts job_id into a retry index page.
 #[derive(Accounts)]
 pub struct FailJob<'info> {
     #[account(mut)]
@@ -719,7 +719,7 @@ pub struct FailJob<'info> {
     pub retry_index_page: Account<'info, JobIndex>,
 }
 
-/// cancel_job — removes a job_id from whichever page it currently lives in.
+/// cancel_job â€” removes a job_id from whichever page it currently lives in.
 #[derive(Accounts)]
 pub struct CancelJob<'info> {
     #[account(mut)]
@@ -739,7 +739,7 @@ pub struct CancelJob<'info> {
     pub source_index_page: Account<'info, JobIndex>,
 }
 
-/// set_queue_paused — toggle queue paused state.
+/// set_queue_paused â€” toggle queue paused state.
 #[derive(Accounts)]
 pub struct SetQueuePaused<'info> {
     #[account(mut)]
@@ -748,7 +748,7 @@ pub struct SetQueuePaused<'info> {
     pub authority: Signer<'info>,
 }
 
-// ─── Compressed Job Instructions ──────────────────────────────────────────────
+// â”€â”€â”€ Compressed Job Instructions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // These instructions parallel the standard job lifecycle but operate on
 // COMPRESSED JobAccounts (light_sdk::LightAccount<JobAccount>) instead of
@@ -801,7 +801,7 @@ pub struct SetQueuePaused<'info> {
 //     let (address, address_params) =
 //         derive_address(&address_seed, &address_tree_info);
 //
-//     // Construct the LightAccount wrapper — this is the in-memory representation.
+//     // Construct the LightAccount wrapper â€” this is the in-memory representation.
 //     // new_init() marks it as "to be created" in the Merkle tree.
 //     let mut compressed_job = LightAccount::<JobAccount>::new_init(
 //         &crate::ID,
@@ -834,7 +834,7 @@ pub struct SetQueuePaused<'info> {
 //         crate::LIGHT_CPI_SIGNER,
 //     );
 //
-//     // Execute the CPI — verifies proof, inserts new address, updates Merkle leaf.
+//     // Execute the CPI â€” verifies proof, inserts new address, updates Merkle leaf.
 //     LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, &proof)
 //         .with_new_addresses(&[address_params])
 //         .with_light_account(&mut compressed_job)?
@@ -852,7 +852,7 @@ pub struct SetQueuePaused<'info> {
 /// the client selects). The `PackedAccounts` abstraction packs their indices.
 #[derive(Accounts)]
 pub struct EnqueueCompressedJob<'info> {
-    /// Same queue PDA as the standard path — manages job_count and stats.
+    /// Same queue PDA as the standard path â€” manages job_count and stats.
     #[account(mut)]
     pub queue: Account<'info, Queue>,
 
@@ -864,7 +864,7 @@ pub struct EnqueueCompressedJob<'info> {
     )]
     pub queue_head: Account<'info, QueueHead>,
 
-    /// Current tail JobIndex page — job_id is appended here (same as standard path).
+    /// Current tail JobIndex page â€” job_id is appended here (same as standard path).
     #[account(
         mut,
         seeds = [b"index", queue.key().as_ref(), &queue_head.tail_index_seq.to_le_bytes()],
@@ -878,7 +878,7 @@ pub struct EnqueueCompressedJob<'info> {
     pub payer: Signer<'info>,
 
     // The Light System Program and all Merkle tree / nullifier queue accounts
-    // are passed as `remaining_accounts` — their count is dynamic.
+    // are passed as `remaining_accounts` â€” their count is dynamic.
     // See PackedAccounts::add_system_accounts() on the client side.
 }
 
@@ -886,3 +886,189 @@ pub struct EnqueueCompressedJob<'info> {
 // section and become active when compiled with --features zk-compression.
 // pub use state::{JobAccount, CJOB_PENDING, CompressedAccountMeta, ...};
 
+// =============================================================================
+// Compressed Job Lifecycle Instructions (feature = "zk-compression")
+//
+// Each handler accepts ValidityProof + CompressedAccountMeta + raw job_data.
+// The Light System Program CPI is the atomic gate: if the proof is invalid,
+// the CPI errors and Solana reverts the entire transaction — no partial writes.
+// Unlock: upgrade to anchor-lang >= 0.31, uncomment light-sdk in Cargo.toml,
+//         add `zk-compression = []` to [features].
+// =============================================================================
+
+// claim_compressed_job
+// Proof must cover CJOB_PENDING state.  Two workers racing → one nullifies the
+// leaf first → the other's (now stale) proof is rejected → only one succeeds.
+#[cfg(feature = "zk-compression")]
+pub fn claim_compressed_job(
+    ctx: Context<ClaimCompressedJob>,
+    proof: state::ValidityProof,
+    job_meta: state::CompressedAccountMeta,
+    job_data: Vec<u8>,
+) -> Result<()> {
+    use state::{JobAccount, CJOB_PENDING, CJOB_PROCESSING};
+    use borsh::BorshDeserialize;
+    let clock = Clock::get()?;
+    let mut job = JobAccount::try_from_slice(&job_data)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?;
+    require!(job.status == CJOB_PENDING,               JobQueueError::JobNotPending);
+    require!(clock.unix_timestamp >= job.execute_after, JobQueueError::JobNotReady);
+    let job_id   = job.job_id;
+    job.status   = CJOB_PROCESSING;
+    job.worker   = ctx.accounts.worker.key().to_bytes();
+    job.started_at = clock.unix_timestamp;
+    job.attempts = job.attempts.saturating_add(1);
+    // Remove PDA-side index reference atomically with the CPI below
+    ctx.accounts.source_index_page.remove_job(job_id)?;
+    let mut ca = LightAccount::<JobAccount>::new_mut(&crate::ID, &job_meta, job)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?;
+    let cpi_accs = CpiAccounts::new(
+        ctx.accounts.payer.to_account_info(), ctx.remaining_accounts, crate::LIGHT_CPI_SIGNER,
+    );
+    LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, &proof)
+        .with_light_account(&mut ca)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?
+        .invoke(cpi_accs)
+        .map_err(|_| error!(JobQueueError::CompressedCpiFailed))?;
+    emit!(JobClaimed {
+        queue: Pubkey::new_from_array(ca.queue), job_id,
+        worker: ctx.accounts.worker.key(), attempt: ca.attempts,
+        claimed_at: clock.unix_timestamp,
+    });
+    Ok(())
+}
+
+// complete_compressed_job
+// Proof must cover CJOB_PROCESSING.  Stale proof (already completed) = invalid leaf = revert.
+#[cfg(feature = "zk-compression")]
+pub fn complete_compressed_job(
+    ctx: Context<CompleteCompressedJob>,
+    proof: state::ValidityProof,
+    job_meta: state::CompressedAccountMeta,
+    job_data: Vec<u8>,
+    result: Option<String>,
+) -> Result<()> {
+    use state::{JobAccount, CJOB_PROCESSING, CJOB_COMPLETED};
+    use borsh::BorshDeserialize;
+    let clock = Clock::get()?;
+    if let Some(ref r) = result { require!(r.len() <= 128, JobQueueError::ResultTooLarge); }
+    let mut job = JobAccount::try_from_slice(&job_data)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?;
+    require!(job.status == CJOB_PROCESSING, JobQueueError::JobNotProcessing);
+    require!(job.worker == ctx.accounts.worker.key().to_bytes(), JobQueueError::Unauthorized);
+    let job_id       = job.job_id;
+    job.status       = CJOB_COMPLETED;
+    job.completed_at = clock.unix_timestamp;
+    let queue = &mut ctx.accounts.queue;
+    queue.pending_count   = queue.pending_count.saturating_sub(1);
+    queue.processed_count = queue.processed_count.checked_add(1).ok_or(JobQueueError::Overflow)?;
+    let mut ca = LightAccount::<JobAccount>::new_mut(&crate::ID, &job_meta, job)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?;
+    let cpi_accs = CpiAccounts::new(
+        ctx.accounts.payer.to_account_info(), ctx.remaining_accounts, crate::LIGHT_CPI_SIGNER,
+    );
+    LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, &proof)
+        .with_light_account(&mut ca)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?
+        .invoke(cpi_accs)
+        .map_err(|_| error!(JobQueueError::CompressedCpiFailed))?;
+    emit!(JobCompleted {
+        queue: queue.key(), job_id, worker: ctx.accounts.worker.key(),
+        result, completed_at: clock.unix_timestamp,
+    });
+    Ok(())
+}
+
+// fail_compressed_job
+// On retry: exponential backoff + re-insert in index.  On exhaustion: dead letter.
+#[cfg(feature = "zk-compression")]
+pub fn fail_compressed_job(
+    ctx: Context<FailCompressedJob>,
+    proof: state::ValidityProof,
+    job_meta: state::CompressedAccountMeta,
+    job_data: Vec<u8>,
+    error_message: String,
+    retry_after_secs: i64,
+) -> Result<()> {
+    use state::{JobAccount, CJOB_PROCESSING, CJOB_PENDING, CJOB_FAILED};
+    use borsh::BorshDeserialize;
+    let clock = Clock::get()?;
+    require!(error_message.len() <= 128, JobQueueError::ResultTooLarge);
+    let mut job = JobAccount::try_from_slice(&job_data)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?;
+    require!(job.status == CJOB_PROCESSING, JobQueueError::JobNotProcessing);
+    require!(job.worker == ctx.accounts.worker.key().to_bytes(), JobQueueError::Unauthorized);
+    let job_id     = job.job_id;
+    let will_retry = job.attempts < job.max_retries;
+    let queue      = &mut ctx.accounts.queue;
+    if will_retry {
+        let mult = 1i64.checked_shl(job.attempts.saturating_sub(1) as u32).unwrap_or(i64::MAX);
+        job.status        = CJOB_PENDING;
+        job.worker        = [0u8; 32];
+        job.started_at    = 0;
+        job.execute_after = clock.unix_timestamp + retry_after_secs.saturating_mul(mult);
+        ctx.accounts.retry_index_page.push_job(job_id)?;
+        emit!(JobRetrying {
+            queue: queue.key(), job_id, attempt: job.attempts,
+            retry_at: job.execute_after, error: error_message,
+        });
+    } else {
+        job.status       = CJOB_FAILED;
+        job.completed_at = clock.unix_timestamp;
+        queue.pending_count = queue.pending_count.saturating_sub(1);
+        queue.failed_count  = queue.failed_count.checked_add(1).ok_or(JobQueueError::Overflow)?;
+        emit!(JobFailed {
+            queue: queue.key(), job_id, attempts: job.attempts,
+            error: error_message, failed_at: clock.unix_timestamp,
+        });
+    }
+    let mut ca = LightAccount::<JobAccount>::new_mut(&crate::ID, &job_meta, job)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?;
+    let cpi_accs = CpiAccounts::new(
+        ctx.accounts.payer.to_account_info(), ctx.remaining_accounts, crate::LIGHT_CPI_SIGNER,
+    );
+    LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, &proof)
+        .with_light_account(&mut ca)
+        .map_err(|_| error!(JobQueueError::InvalidCompressedJobData))?
+        .invoke(cpi_accs)
+        .map_err(|_| error!(JobQueueError::CompressedCpiFailed))?;
+    Ok(())
+}
+
+// Account contexts for the compressed instructions.
+// Compressed job data arrives in instruction data — no on-chain job account.
+// Light System Program + Merkle tree accounts come as remaining_accounts.
+
+#[cfg(feature = "zk-compression")]
+#[derive(Accounts)]
+pub struct ClaimCompressedJob<'info> {
+    pub worker: Signer<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// Index page containing this job_id — removed atomically.
+    #[account(mut, constraint = source_index_page.queue != Pubkey::default() @ JobQueueError::QueueMismatch)]
+    pub source_index_page: Account<'info, JobIndex>,
+}
+
+#[cfg(feature = "zk-compression")]
+#[derive(Accounts)]
+pub struct CompleteCompressedJob<'info> {
+    #[account(mut)]
+    pub queue: Account<'info, Queue>,
+    pub worker: Signer<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+}
+
+#[cfg(feature = "zk-compression")]
+#[derive(Accounts)]
+pub struct FailCompressedJob<'info> {
+    #[account(mut)]
+    pub queue: Account<'info, Queue>,
+    pub worker: Signer<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// Retry index page — job_id re-inserted here on retry.
+    #[account(mut, constraint = retry_index_page.queue == queue.key() @ JobQueueError::QueueMismatch)]
+    pub retry_index_page: Account<'info, JobIndex>,
+}

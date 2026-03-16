@@ -143,6 +143,10 @@ async function processReadyJobs(
   worker = loadKeypairFromFile(process.env.WALLET_PATH ?? defaultWalletPath()),
   cluster: Cluster
 ): Promise<number> {
+  // SOLQUEUE_COMPRESSED=1 → use ZK-compressed job path (requires enqueue_compressed_job).
+  // Default = standard on-chain Job PDA path.
+  const useCompressed = process.env.SOLQUEUE_COMPRESSED === "1";
+
   // Read pending + delayed indexes instead of scanning all job accounts
   const readyIds = await client.getReadyJobIds(queuePda);
   if (readyIds.length === 0) {
@@ -154,8 +158,24 @@ async function processReadyJobs(
   let processed = 0;
 
   for (const job of jobs) {
+    // Derive which index page currently holds this job.
+    // In the linked-list model, the worker reads QueueHead.head_index_seq
+    // and passes that page. Here we use page seq=0 as a simplification;
+    // a production worker would query queue_head.head_index_seq first.
+    const indexPageSeq = 0;
+
     try {
-      const claimSignature = await client.claimJob(job.publicKey, queuePda, worker);
+      // claimJob — with useCompressed=true:
+      //   1. Calls _fetchProofAndMeta → Light indexer fetches ZK proof for this job
+      //   2. Sends claimCompressedJob tx which atomically:
+      //      - Verifies proof (job is PENDING in Merkle root)
+      //      - Removes job_id from source_index_page
+      //      - Updates compressed hash to PROCESSING state
+      //   Any other worker racing will have their proof invalidated after our tx lands.
+      const claimSignature = await client.claimJob(
+        job.publicKey, queuePda, worker,
+        { useCompressed, cluster, indexPageSeq }
+      );
       console.log(`Claimed ${jobSummary(job)} -> ${formatTxLocation(claimSignature, cluster)}`);
     } catch (error) {
       console.warn(`Skipped ${jobSummary(job)} because claim failed: ${(error as Error).message}`);
@@ -164,12 +184,24 @@ async function processReadyJobs(
 
     try {
       const result = await executeJob(job);
-      const completeSignature = await client.completeJob(queuePda, job.publicKey, worker, result);
+      // completeCompressedJob fetches a fresh proof for PROCESSING state,
+      // then atomically transitions the leaf to COMPLETED.
+      const completeSignature = await client.completeJob(
+        queuePda, job.publicKey, worker, result,
+        { useCompressed, cluster }
+      );
       console.log(`Completed ${jobSummary(job)} -> ${formatTxLocation(completeSignature, cluster)}`);
       processed += 1;
     } catch (error) {
       const message = (error as Error).message.slice(0, 128);
-      const failSignature = await client.failJob(queuePda, job.publicKey, worker, message, Number(process.env.SOLQUEUE_RETRY_AFTER_SECS ?? 30));
+      // failCompressedJob fetches a fresh PROCESSING proof then:
+      //   - retries remaining → PENDING + exponential backoff + re-index
+      //   - exhausted        → FAILED (dead letter)
+      const failSignature = await client.failJob(
+        queuePda, job.publicKey, worker, message,
+        Number(process.env.SOLQUEUE_RETRY_AFTER_SECS ?? 30),
+        { useCompressed, cluster, retryIndexPageSeq: indexPageSeq }
+      );
       console.log(`Failed ${jobSummary(job)} -> ${formatTxLocation(failSignature, cluster)} (${message})`);
       processed += 1;
     }

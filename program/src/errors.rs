@@ -58,4 +58,10 @@ pub enum JobQueueError {
 
     #[msg("Index page belongs to a different queue than the job")]
     QueueMismatch,
+
+    #[msg("Failed to deserialize compressed job_data bytes")]
+    InvalidCompressedJobData,
+
+    #[msg("Light System Program CPI failed — proof invalid or account mismatch")]
+    CompressedCpiFailed,
 }

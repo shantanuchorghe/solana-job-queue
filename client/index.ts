@@ -4,6 +4,17 @@ import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+// @lightprotocol/stateless.js — TypeScript client for the Light System Program.
+// This is a pure npm package; it has no Rust/Cargo dependency conflicts.
+// It wraps the Light indexer RPC to:
+//   1. Fetch compressed account data (stored in ledger, not getAccountInfo)
+//   2. Fetch ValidityProofs needed to mutate compressed accounts on-chain
+import {
+  createRpc,
+  type Rpc,
+  type CompressedAccountMeta as LightCompressedAccountMeta,
+} from "@lightprotocol/stateless.js";
+
 import {
   PROGRAM_ID,
   deriveJobPda,
@@ -18,6 +29,21 @@ import { SolQueue } from "../target/types/sol_queue";
 import idl from "../target/idl/sol_queue.json";
 
 export type { Cluster };
+
+// Light Protocol indexer RPC endpoints per cluster.
+// Workers fetch ValidityProofs from these before sending compressed-account
+// transactions. Different from the standard Solana RPC — the Light indexer
+// tracks the Merkle trees and can generate ZK proofs.
+const LIGHT_RPC_ENDPOINT: Record<string, string> = {
+  devnet:       "https://zk-testnet.helius.dev:8899",
+  "mainnet-beta": "https://mainnet.helius-rpc.com",
+  localnet:     "http://localhost:8899", // local validator with light-system-program
+};
+
+function lightRpcForCluster(cluster: Cluster): string {
+  return LIGHT_RPC_ENDPOINT[cluster] ?? LIGHT_RPC_ENDPOINT.devnet;
+}
+
 
 export interface JobData {
   [key: string]: unknown;
@@ -255,69 +281,267 @@ export class SolQueueClient {
     return jobs;
   }
 
-  async claimJob(jobPda: PublicKey, queuePda: PublicKey, workerKeypair: Keypair): Promise<string> {
-    const [pendingIndex] = this.deriveIndexPda(queuePda, "pending");
-    const [delayedIndex] = this.deriveIndexPda(queuePda, "delayed");
-    const [processingIndex] = this.deriveIndexPda(queuePda, "processing");
+  // ── claimJob ─────────────────────────────────────────────────────────────
+  // Standard path: mutates the on-chain Job PDA directly.
+  // Compressed path: fetches a ValidityProof from the Light indexer and sends
+  //   a claimCompressedJob instruction that atomically:
+  //     1. Verifies proof (proves job is in PENDING state in Merkle tree)
+  //     2. Removes job_id from source_index_page
+  //     3. Updates compressed job hash to PROCESSING state
+  async claimJob(
+    jobPda: PublicKey,
+    queuePda: PublicKey,
+    workerKeypair: Keypair,
+    options: { useCompressed?: boolean; cluster?: Cluster; indexPageSeq?: number } = {}
+  ): Promise<string> {
+    const { useCompressed = false, cluster = "devnet", indexPageSeq = 0 } = options;
+
+    if (useCompressed) {
+      return this._claimCompressed(jobPda, queuePda, workerKeypair, cluster, indexPageSeq);
+    }
+
+    // Standard path — derives source_index_page from the current head page seq.
+    // For simplicity the page is passed as the first index page (seq=0) unless
+    // the caller provides a specific seq via indexPageSeq.
+    const [sourceIndexPage] = this._deriveIndexPagePda(queuePda, indexPageSeq);
 
     return this.program.methods
       .claimJob()
       .accounts({
-        job: jobPda,
-        worker: workerKeypair.publicKey,
-        pendingIndex,
-        delayedIndex,
-        processingIndex,
+        job:             jobPda,
+        worker:          workerKeypair.publicKey,
+        sourceIndexPage,
       } as any)
       .signers([workerKeypair])
       .rpc();
   }
 
+  private async _claimCompressed(
+    jobPda: PublicKey,
+    queuePda: PublicKey,
+    workerKeypair: Keypair,
+    cluster: Cluster,
+    indexPageSeq: number
+  ): Promise<string> {
+    const lightRpc     = createRpc(lightRpcForCluster(cluster));
+    const { proof, meta, jobDataBytes } = await this._fetchProofAndMeta(lightRpc, jobPda);
+    const [sourceIndexPage] = this._deriveIndexPagePda(queuePda, indexPageSeq);
+
+    return this.program.methods
+      .claimCompressedJob(proof, meta, Array.from(jobDataBytes))
+      .accounts({
+        worker:          workerKeypair.publicKey,
+        payer:           workerKeypair.publicKey,
+        sourceIndexPage,
+      } as any)
+      .remainingAccounts(await this._buildLightRemainingAccounts(lightRpc, meta))
+      .signers([workerKeypair])
+      .rpc();
+  }
+
+  // ── completeJob ────────────────────────────────────────────────────────────
   async completeJob(
     queuePda: PublicKey,
     jobPda: PublicKey,
     workerKeypair: Keypair,
-    result?: string
+    result?: string,
+    options: { useCompressed?: boolean; cluster?: Cluster } = {}
   ): Promise<string> {
-    const [processingIndex] = this.deriveIndexPda(queuePda, "processing");
-    const [completedIndex] = this.deriveIndexPda(queuePda, "completed");
+    const { useCompressed = false, cluster = "devnet" } = options;
+
+    if (useCompressed) {
+      return this._completeCompressed(queuePda, jobPda, workerKeypair, result, cluster);
+    }
 
     return this.program.methods
       .completeJob(result ?? null)
       .accounts({
-        queue: queuePda,
-        job: jobPda,
+        queue:  queuePda,
+        job:    jobPda,
         worker: workerKeypair.publicKey,
-        processingIndex,
-        completedIndex,
       } as any)
       .signers([workerKeypair])
       .rpc();
   }
 
+  private async _completeCompressed(
+    queuePda: PublicKey,
+    jobPda: PublicKey,
+    workerKeypair: Keypair,
+    result: string | undefined,
+    cluster: Cluster
+  ): Promise<string> {
+    const lightRpc = createRpc(lightRpcForCluster(cluster));
+    const { proof, meta, jobDataBytes } = await this._fetchProofAndMeta(lightRpc, jobPda);
+
+    return this.program.methods
+      .completeCompressedJob(proof, meta, Array.from(jobDataBytes), result ?? null)
+      .accounts({
+        queue:  queuePda,
+        worker: workerKeypair.publicKey,
+        payer:  workerKeypair.publicKey,
+      } as any)
+      .remainingAccounts(await this._buildLightRemainingAccounts(lightRpc, meta))
+      .signers([workerKeypair])
+      .rpc();
+  }
+
+  // ── failJob ────────────────────────────────────────────────────────────────
   async failJob(
     queuePda: PublicKey,
     jobPda: PublicKey,
     workerKeypair: Keypair,
     errorMessage: string,
-    retryAfterSecs = 30
+    retryAfterSecs = 30,
+    options: { useCompressed?: boolean; cluster?: Cluster; retryIndexPageSeq?: number } = {}
   ): Promise<string> {
-    const [processingIndex] = this.deriveIndexPda(queuePda, "processing");
-    const [delayedIndex] = this.deriveIndexPda(queuePda, "delayed");
-    const [failedIndex] = this.deriveIndexPda(queuePda, "failed");
+    const { useCompressed = false, cluster = "devnet", retryIndexPageSeq = 0 } = options;
+
+    if (useCompressed) {
+      return this._failCompressed(
+        queuePda, jobPda, workerKeypair, errorMessage, retryAfterSecs, cluster, retryIndexPageSeq
+      );
+    }
+
+    const [retryIndexPage] = this._deriveIndexPagePda(queuePda, retryIndexPageSeq);
 
     return this.program.methods
       .failJob(errorMessage, new BN(retryAfterSecs))
       .accounts({
-        queue: queuePda,
-        job: jobPda,
-        worker: workerKeypair.publicKey,
-        processingIndex,
-        delayedIndex,
-        failedIndex,
+        queue:          queuePda,
+        job:            jobPda,
+        worker:         workerKeypair.publicKey,
+        retryIndexPage,
       } as any)
       .signers([workerKeypair])
       .rpc();
+  }
+
+  private async _failCompressed(
+    queuePda: PublicKey,
+    jobPda: PublicKey,
+    workerKeypair: Keypair,
+    errorMessage: string,
+    retryAfterSecs: number,
+    cluster: Cluster,
+    retryIndexPageSeq: number
+  ): Promise<string> {
+    const lightRpc = createRpc(lightRpcForCluster(cluster));
+    const { proof, meta, jobDataBytes } = await this._fetchProofAndMeta(lightRpc, jobPda);
+    const [retryIndexPage] = this._deriveIndexPagePda(queuePda, retryIndexPageSeq);
+
+    return this.program.methods
+      .failCompressedJob(proof, meta, Array.from(jobDataBytes), errorMessage, new BN(retryAfterSecs))
+      .accounts({
+        queue:          queuePda,
+        worker:         workerKeypair.publicKey,
+        payer:          workerKeypair.publicKey,
+        retryIndexPage,
+      } as any)
+      .remainingAccounts(await this._buildLightRemainingAccounts(lightRpc, meta))
+      .signers([workerKeypair])
+      .rpc();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Private Light Protocol helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Derive a JobIndex page PDA by sequence number.
+  // Seeds: ["index", queuePubkey, seq.to_le_bytes()]
+  _deriveIndexPagePda(queuePda: PublicKey, seq: number): [PublicKey, number] {
+    const seqBuf = Buffer.alloc(8);
+    seqBuf.writeBigUInt64LE(BigInt(seq));
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("index"), queuePda.toBuffer(), seqBuf],
+      this.program.programId
+    );
+  }
+
+  // Fetch a compressed job's current data + validity proof from the Light indexer.
+  //
+  // What the Light indexer returns:
+  //   - compressedAccount.data.data  → borsh-serialized JobAccount bytes
+  //     (this is what the on-chain handler borsh-deserializes from job_data)
+  //   - compressedAccount.address    → the compressed account's unique address
+  //   - proof                        → ValidityProof struct (ZK-SNARK)
+  //   - CompressedAccountMeta        → hash + tree indices for LightAccount::new_mut()
+  //
+  // The proof is only valid for the CURRENT Merkle root.  If another transaction
+  // updates the same leaf before this tx lands, the root changes and the proof
+  // becomes invalid → tx reverts.  This is how double-claim is prevented.
+  private async _fetchProofAndMeta(
+    lightRpc: Rpc,
+    jobPda: PublicKey // used as the compressed account address (deterministic seed)
+  ): Promise<{
+    proof: any;
+    meta: any;
+    jobDataBytes: Uint8Array;
+  }> {
+    // getCompressedAccount fetches the current state from the Light indexer.
+    // Unlike getAccountInfo, this reads from the Merkle tree not from account data.
+    const compressedAccount = await lightRpc.getCompressedAccount(
+      undefined,
+      jobPda // address — same deterministic key used during enqueue
+    );
+
+    if (!compressedAccount) {
+      throw new Error(
+        `Compressed job account not found for address ${jobPda.toBase58()}. ` +
+        `Ensure the job was created with enqueue_compressed_job, ` +
+        `not the standard enqueue_job.`
+      );
+    }
+
+    const jobDataBytes = compressedAccount.data?.data
+      ? Buffer.from(compressedAccount.data.data)
+      : Buffer.alloc(0);
+
+    // getValidityProof fetches a fresh ZK-SNARK proof from the indexer.
+    // This proves: "this hash exists in the current Merkle root".
+    // The proof is tied to the current root — it expires if the root changes.
+    const proofResult = await lightRpc.getValidityProof(
+      [{ hash: compressedAccount.hash, tree: compressedAccount.tree }],
+      [] // no new addresses needed for updates
+    );
+
+    // Build CompressedAccountMeta from the fetched data.
+    // This tells LightAccount::new_mut() which leaf to nullify.
+    const meta = {
+      hash:              compressedAccount.hash,
+      address:           compressedAccount.address,
+      treeInfo:          proofResult.treeInfo,
+      outputStateMerkleTreeIndex: proofResult.treeInfo?.treeIndex ?? 0,
+    };
+
+    return { proof: proofResult.proof, meta, jobDataBytes };
+  }
+
+  // Build the remaining_accounts list required by the Light System Program.
+  // These accounts are the State Merkle Tree + Nullifier Queue on-chain PDAs.
+  // Their indices are packed into the instruction data by PackedAccounts.
+  private async _buildLightRemainingAccounts(
+    lightRpc: Rpc,
+    meta: any
+  ): Promise<Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }>> {
+    // The stateless.js SDK exposes `getStateTreeAccounts` or equivalent.
+    // For now we return the canonical devnet state tree and nullifier queue.
+    // In production, derive these from the treeInfo in the proof metadata.
+    const LIGHT_STATE_TREE_DEVNET = new PublicKey(
+      "smt1NamzXdq4AMqS2fS2F1i5KTYPZRhoHgWx38d8WsT"
+    );
+    const LIGHT_NULLIFIER_QUEUE_DEVNET = new PublicKey(
+      "nfq1NvQDJ2GEgnS8zt9prAe8rjjpAW1zFkrvZoBR148"
+    );
+    const LIGHT_SYSTEM_PROGRAM = new PublicKey(
+      "H5sFv8VwWmjxHYS2GB4fTDsK7uTtnRT4WiixtHrET3bN"
+    );
+
+    return [
+      { pubkey: LIGHT_SYSTEM_PROGRAM,         isSigner: false, isWritable: false },
+      { pubkey: LIGHT_STATE_TREE_DEVNET,       isSigner: false, isWritable: true  },
+      { pubkey: LIGHT_NULLIFIER_QUEUE_DEVNET,  isSigner: false, isWritable: true  },
+    ];
   }
 
   async setQueuePaused(queuePda: PublicKey, paused: boolean): Promise<string> {
