@@ -11,7 +11,7 @@ RUN npm ci
 # Copy source
 COPY client/ ./client/
 COPY shared/ ./shared/
-COPY target/ ./target/
+COPY app/src/idl/dec_queue.json ./target/idl/
 COPY tsconfig.json ./
 
 # Compile TypeScript → JavaScript using esbuild (fast, no type checking)
