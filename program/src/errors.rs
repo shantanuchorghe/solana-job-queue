@@ -46,4 +46,16 @@ pub enum JobQueueError {
 
     #[msg("Job ID was not found in the specified index")]
     JobNotInIndex,
+
+    #[msg("grow_index called but the tail page is not yet full")]
+    IndexNotFull,
+
+    #[msg("advance_head called but the head page still contains jobs")]
+    HeadPageNotEmpty,
+
+    #[msg("No successor page exists — head and tail are the same page")]
+    NoSuccessorPage,
+
+    #[msg("Index page belongs to a different queue than the job")]
+    QueueMismatch,
 }
